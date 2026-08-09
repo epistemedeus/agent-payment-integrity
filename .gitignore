@@ -1,0 +1,4 @@
+node_modules/
+*.tgz
+audit-result.json
+audit-result.sarif

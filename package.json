@@ -1,0 +1,48 @@
+{
+  "name": "agent-payment-integrity",
+  "version": "0.1.0-candidate.1",
+  "private": true,
+  "description": "Credential-free CI checks for x402 and MPP seller declarations and live payment challenges",
+  "keywords": [
+    "x402",
+    "mpp",
+    "agentic-commerce",
+    "machine-payments",
+    "continuous-integration"
+  ],
+  "type": "module",
+  "exports": "./integrity.mjs",
+  "bin": {
+    "agent-payment-integrity": "./cli.mjs"
+  },
+  "files": [
+    "integrity.mjs",
+    "cli.mjs",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/epistemedeus/agent-payment-integrity.git"
+  },
+  "bugs": {
+    "url": "https://github.com/epistemedeus/agent-payment-integrity/issues"
+  },
+  "homepage": "https://github.com/epistemedeus/agent-payment-integrity#readme",
+  "scripts": {
+    "test": "node --test integrity.test.mjs",
+    "audit:self": "node cli.mjs audit --origin https://agents.samedaydesk.com",
+    "prepack": "npm test"
+  },
+  "dependencies": {
+    "@x402/extensions": "2.16.0",
+    "ajv": "8.20.0",
+    "ipaddr.js": "2.5.0"
+  },
+  "license": "MIT"
+}
