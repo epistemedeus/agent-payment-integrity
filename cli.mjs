@@ -8,7 +8,7 @@ function usage() {
   return `agent-payment-integrity
 
 Usage:
-  agent-payment-integrity audit --origin https://seller.example [--format json|text|sarif] [--out path] [--public-dns]
+  agent-payment-integrity audit --origin https://seller.example [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar]
 
 The audit fetches /openapi.json and optional /mpp-openapi.json, then performs
 credential-free GET probes. It never signs or sends a payment.`;
@@ -43,7 +43,11 @@ async function main() {
   if (!origin) throw new Error("--origin is required");
   const format = option("format", "text");
   if (!["json", "text", "sarif"].includes(format)) throw new Error("--format must be json, text, or sarif");
-  const report = await auditOrigin({ origin, publicDns: process.argv.includes("--public-dns") });
+  const report = await auditOrigin({
+    origin,
+    publicDns: process.argv.includes("--public-dns"),
+    requireBazaar: process.argv.includes("--require-bazaar"),
+  });
   const output = format === "text"
     ? textReport(report)
     : `${JSON.stringify(format === "sarif" ? toSarif(report) : report, null, 2)}\n`;

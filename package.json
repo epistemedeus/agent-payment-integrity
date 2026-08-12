@@ -1,6 +1,6 @@
 {
   "name": "agent-payment-integrity",
-  "version": "0.1.0-candidate.1",
+  "version": "0.1.0-candidate.2",
   "private": true,
   "description": "Credential-free CI checks for x402 and MPP seller declarations and live payment challenges",
   "keywords": [
@@ -42,7 +42,8 @@
   "dependencies": {
     "@x402/extensions": "2.16.0",
     "ajv": "8.20.0",
-    "ipaddr.js": "2.5.0"
+    "ipaddr.js": "2.5.0",
+    "agent-payment-policy": "0.11.1"
   },
   "license": "MIT"
 }

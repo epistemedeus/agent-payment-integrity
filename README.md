@@ -9,14 +9,24 @@ response and checks:
 
 1. The declared crawler request reaches HTTP 402 rather than an accidental 400.
 2. The x402 v2 challenge binds the complete request, including query values.
-3. The Bazaar declaration passes official validators.
-4. Bazaar input and output examples satisfy their declared JSON Schemas.
+3. Every advertised Bazaar declaration passes official validators. Omission is
+   recorded as a discovery state rather than a payment-integrity failure because
+   Bazaar is an optional x402 extension.
+4. Advertised Bazaar input and output examples satisfy their declared JSON
+   Schemas.
 5. Live x402 and MPP offers agree on amount, asset, network, recipient, and
    decimals where both are present.
 6. MPP OpenAPI offers agree with the live challenges.
+7. Each exact paid GET operation declares an admissible self-contained JSON
+   success schema with typed required fields and recursively guaranteed paths.
 
 It emits text, JSON, or SARIF and exits nonzero on a contract failure. It has no
 wallet, signer, facilitator credential, payment executor, or paid probe.
+
+Response-contract evidence comes from `agent-payment-policy@0.11.1`. Reports
+retain only the exact route binding, schema digest, required fields and paths,
+controlled structural findings, and example consistency. They do not retain the
+seller schema, example values, query values, credentials, or payment material.
 
 ## Try it
 
@@ -26,8 +36,13 @@ cd agent-payment-integrity
 npm ci --ignore-scripts
 npm test
 node cli.mjs audit --origin https://agents.samedaydesk.com
+node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
 ```
+
+Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
+Without it, a missing Bazaar extension remains visible in the report but does
+not make an otherwise coherent payment transport fail.
 
 CI sandboxes that intentionally synthesize public DNS into reserved addresses
 can add `--public-dns`. That explicit mode resolves through DNS-over-HTTPS and

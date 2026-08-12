@@ -77,7 +77,7 @@ function documents() {
       openapi: "3.1.0",
       info: { title: "fixture", version: "1.0.0" },
       paths: {
-        "/read": { get: { parameters, "x-payment-info": { price: { amount: "0.05", currency: "USD" }, protocols: [{ x402: { asset: ASSET, network: "eip155:8453", scheme: "exact" } }] } } },
+        "/read": { get: { parameters, responses: { 200: { content: { "application/json": { schema: { type: "object", required: ["ok", "data"], properties: { ok: { type: "boolean" }, data: { type: "object", required: ["value"], properties: { value: { type: "number" } } } } } } } } }, "x-payment-info": { price: { amount: "0.05", currency: "USD" }, protocols: [{ x402: { asset: ASSET, network: "eip155:8453", scheme: "exact" } }] } } },
       },
     },
     mppDocument: {
@@ -169,9 +169,15 @@ test("passes a dual-rail declaration bound to the full runtime request", async (
     requestImpl: requestFixture(),
   });
   assert.equal(report.ok, true);
+  assert.equal(report.schemaVersion, "agent-payment-integrity.audit.v2");
   assert.equal(report.routeCount, 1);
   assert.deepEqual(report.routes[0].protocols, ["mpp", "x402"]);
   assert.deepEqual(report.routes[0].findings, []);
+  assert.equal(report.routes[0].responseContract.schemaVersion, "agent-payment-policy.response-contract-report.v2");
+  assert.equal(report.routes[0].responseContract.decision, "admissible");
+  assert.deepEqual(report.routes[0].responseContract.requiredPaths, ["data", "data.value", "ok"]);
+  assert.equal("schema" in report.routes[0].responseContract, false);
+  assert.deepEqual(report.routes[0].discovery.bazaar, { present: true, valid: true });
   assert.deepEqual(report.safety, {
     credentialsUsed: false,
     paymentSigned: false,
@@ -182,6 +188,56 @@ test("passes a dual-rail declaration bound to the full runtime request", async (
     opaqueStateRetained: false,
     queryValuesRetained: false,
   });
+});
+
+test("treats an omitted optional Bazaar extension as a discovery state, not a payment-integrity failure", async () => {
+  const requestImpl = async (url) => ({
+    status: 402,
+    headers: {
+      "payment-required": Buffer.from(JSON.stringify({
+        x402Version: 2,
+        resource: { url: url.pathname + url.search, description: "fixture", mimeType: "application/json" },
+        accepts: [{ scheme: "exact", network: "eip155:8453", amount: "50000", asset: ASSET, payTo: RECIPIENT, maxTimeoutSeconds: 300 }],
+      })).toString("base64url"),
+      "www-authenticate": mppHeader(),
+    },
+    body: Buffer.alloc(0),
+  });
+  const report = await auditIntegrity({ origin: "https://example.com", ...documents(), requestImpl });
+  assert.equal(report.ok, true);
+  assert.deepEqual(report.policy, { requireBazaar: false });
+  assert.deepEqual(report.routes[0].discovery.bazaar, { present: false, valid: null });
+  assert.equal(report.routes[0].findings.includes("bazaar_extension_missing"), false);
+
+  const strict = await auditIntegrity({ origin: "https://example.com", ...documents(), requireBazaar: true, requestImpl });
+  assert.equal(strict.ok, false);
+  assert.deepEqual(strict.policy, { requireBazaar: true });
+  assert.ok(strict.routes[0].findings.includes("bazaar_extension_missing"));
+});
+
+test("fails seller CI when exact OpenAPI success output is absent or underconstrained", async () => {
+  const absentDocuments = documents();
+  delete absentDocuments.x402Document.paths["/read"].get.responses;
+  const absent = await auditIntegrity({
+    origin: "https://example.com",
+    ...absentDocuments,
+    requestImpl: requestFixture(),
+  });
+  assert.equal(absent.ok, false);
+  assert.ok(absent.routes[0].findings.includes("seller_response_contract_absent"));
+
+  const partialDocuments = documents();
+  partialDocuments.x402Document.paths["/read"].get.responses[200].content["application/json"].schema = {
+    type: "object",
+    additionalProperties: true,
+  };
+  const partial = await auditIntegrity({
+    origin: "https://example.com",
+    ...partialDocuments,
+    requestImpl: requestFixture(),
+  });
+  assert.equal(partial.ok, false);
+  assert.ok(partial.routes[0].findings.includes("seller_response_contract_partial"));
 });
 
 test("fails closed on full-query drift and cross-rail economics drift", async () => {
@@ -201,6 +257,27 @@ test("fails closed on full-query drift and cross-rail economics drift", async ()
   assert.ok(priceMismatch.routes[0].findings.includes("mpp_declaration_runtime_mismatch"));
 });
 
+test("accepts an exact root-relative resource binding and rejects scheme-relative or changed paths", async () => {
+  const exact = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requestImpl: requestFixture({ resourceUrl: "/read?url=https%3A%2F%2Fexample.com" }),
+  });
+  assert.equal(exact.ok, true);
+
+  for (const resourceUrl of [
+    "//lookalike.example/read?url=https%3A%2F%2Fexample.com",
+    "/other?url=https%3A%2F%2Fexample.com",
+  ]) {
+    const report = await auditIntegrity({
+      origin: "https://example.com",
+      ...documents(),
+      requestImpl: requestFixture({ resourceUrl }),
+    });
+    assert.ok(report.routes[0].findings.includes("x402_full_request_binding_mismatch"));
+  }
+});
+
 test("emits SARIF with controlled findings and no raw headers", async () => {
   const report = await auditIntegrity({
     origin: "https://example.com",
@@ -210,5 +287,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.2");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

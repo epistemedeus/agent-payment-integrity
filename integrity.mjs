@@ -8,8 +8,10 @@ import {
   validateDiscoveryExtension,
   validateDiscoveryExtensionSpec,
 } from "@x402/extensions/bazaar";
+import { SCHEMAS as POLICY_SCHEMAS, evaluateResponseContract } from "agent-payment-policy";
 
-export const SCHEMA_VERSION = "agent-payment-integrity.audit.v1";
+export const SCHEMA_VERSION = "agent-payment-integrity.audit.v2";
+export const TOOL_VERSION = "0.1.0-candidate.2";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -384,6 +386,19 @@ function equivalentEconomics(left, right) {
   return true;
 }
 
+function resourceBindsTarget(resourceUrl, target, origin) {
+  if (typeof resourceUrl !== "string" || !resourceUrl) return false;
+  try {
+    if (resourceUrl.startsWith("/")) {
+      if (resourceUrl.startsWith("//")) return false;
+      return new URL(resourceUrl, origin).toString() === target.toString();
+    }
+    return new URL(resourceUrl).toString() === target.toString();
+  } catch {
+    return false;
+  }
+}
+
 function declaredMppOffers(operation) {
   const offers = operation?.["x-payment-info"]?.offers;
   if (!Array.isArray(offers)) return [];
@@ -403,6 +418,38 @@ function paidGetOperations(document) {
   return operations;
 }
 
+function responseDeclaration(operation) {
+  const responses = isPlainObject(operation?.responses) ? operation.responses : {};
+  const status = Object.keys(responses).filter((key) => /^2\d\d$/.test(key)).sort()[0];
+  const content = isPlainObject(responses?.[status]?.content) ? responses[status].content : {};
+  const key = Object.keys(content).find((item) => item.toLowerCase().split(";", 1)[0].trim() === "application/json");
+  const media = isPlainObject(content?.[key]) ? content[key] : null;
+  if (!status || !media) return { status: 200, mediaType: "application/json", schema: null };
+  const schema = isPlainObject(media.schema) ? media.schema : null;
+  let example = media.example;
+  if (example === undefined) {
+    const first = Object.values(isPlainObject(media.examples) ? media.examples : {})
+      .find((item) => isPlainObject(item) && item.value !== undefined);
+    example = first?.value;
+  }
+  if (example === undefined && schema?.example !== undefined) example = schema.example;
+  return {
+    status: Number(status),
+    mediaType: "application/json",
+    schema,
+    ...(example === undefined ? {} : { example }),
+  };
+}
+
+function responseContractReport(origin, route, operation) {
+  return evaluateResponseContract({
+    schemaVersion: POLICY_SCHEMAS.responseContractObservation,
+    source: "seller_openapi",
+    request: { method: "GET", url: new URL(route, origin).toString() },
+    response: responseDeclaration(operation),
+  });
+}
+
 function publicEconomics(offer) {
   return {
     amountAtomic: offer.amountAtomic,
@@ -420,6 +467,7 @@ export async function auditIntegrity({
   origin,
   x402Document,
   mppDocument = null,
+  requireBazaar = false,
   requestImpl = requestPinned,
 } = {}) {
   const base = normalizeOrigin(origin);
@@ -432,6 +480,10 @@ export async function auditIntegrity({
   for (const route of routeNames) {
     const operation = xOperations.get(route) || mppOperations.get(route);
     const findings = [];
+    const responseContract = responseContractReport(base, route, operation);
+    if (responseContract.decision !== "admissible") {
+      findings.push(`seller_response_contract_${responseContract.decision}`);
+    }
     let target;
     let queryKeys = [];
     try {
@@ -460,13 +512,18 @@ export async function auditIntegrity({
     const x402 = parseX402Challenge(response.headers?.["payment-required"] || response.headers?.["x-payment-required"]);
     const mpp = parseMppChallenges(response.headers?.["www-authenticate"]);
     const protocols = [];
+    let bazaarObservation = { present: false, valid: null };
 
     if (x402.error) findings.push("x402_challenge_invalid");
     else {
       protocols.push("x402");
       const resourceUrl = x402.payload?.resource?.url;
-      if (resourceUrl !== target.toString()) findings.push("x402_full_request_binding_mismatch");
-      const bazaar = validateBazaarContract(x402.payload?.extensions?.bazaar);
+      if (!resourceBindsTarget(resourceUrl, target, base)) findings.push("x402_full_request_binding_mismatch");
+      const bazaarExtension = x402.payload?.extensions?.bazaar;
+      const bazaar = bazaarExtension === undefined
+        ? { present: false, valid: null, findings: requireBazaar ? ["bazaar_extension_missing"] : [] }
+        : { present: true, ...validateBazaarContract(bazaarExtension) };
+      bazaarObservation = { present: bazaar.present, valid: bazaar.valid };
       findings.push(...bazaar.findings);
     }
 
@@ -502,6 +559,10 @@ export async function auditIntegrity({
         x402: x402.error ? null : publicEconomics(x402.accepts[0]),
         mpp: mpp.error ? null : publicEconomics(mpp.offers.find((offer) => offer.method === "evm") || mpp.offers[0]),
       },
+      discovery: {
+        bazaar: bazaarObservation,
+      },
+      responseContract,
     });
   }
 
@@ -529,6 +590,7 @@ export async function auditIntegrity({
       opaqueStateRetained: false,
       queryValuesRetained: false,
     },
+    policy: { requireBazaar },
     boundary: "Unpaid point-in-time contract integrity only. No claim about settlement, paid delivery, catalog indexing, identity, or future availability.",
   };
 }
@@ -539,6 +601,7 @@ export async function auditOrigin({
   mppPath = "/mpp-openapi.json",
   requestImpl = requestPinned,
   publicDns = false,
+  requireBazaar = false,
 } = {}) {
   const base = normalizeOrigin(origin);
   const requestOptions = { userAgent: "agent-payment-integrity/0.1", publicDns };
@@ -550,7 +613,7 @@ export async function auditOrigin({
     if (!String(error?.message).includes("HTTP 404")) throw error;
   }
   const boundRequest = (url, options = {}) => requestImpl(url, { ...requestOptions, ...options });
-  const report = await auditIntegrity({ origin: base, x402Document, mppDocument, requestImpl: boundRequest });
+  const report = await auditIntegrity({ origin: base, x402Document, mppDocument, requireBazaar, requestImpl: boundRequest });
   report.safety.dnsMode = publicDns ? "explicit-public-doh" : "system-resolver";
   return report;
 }
@@ -566,7 +629,7 @@ export function toSarif(report) {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [{
-      tool: { driver: { name: "agent-payment-integrity", version: "0.1.0-candidate.1", rules: [] } },
+      tool: { driver: { name: "agent-payment-integrity", version: TOOL_VERSION, rules: [] } },
       results,
     }],
   };
