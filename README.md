@@ -54,6 +54,7 @@ node cli.mjs audit --origin https://api.zerion.io --method POST --route /v1/wall
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-purchase-evidence
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
+node cli.mjs scaffold --origin https://agents.samedaydesk.com --service-version 1.23.11 --out agent-payment-evidence.json
 ```
 
 Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
@@ -67,6 +68,18 @@ OpenAPI entry-point response and does not transmit a seller POST. In both cases
 it verifies the manifest digest and exact operation, then cross-checks the
 manifest's schema digest and complete required-path set against the current
 OpenAPI declaration. A generic unrelated `describedby` link is ignored.
+
+Use `scaffold` when a source-owning seller needs a conservative starting
+manifest rather than only a verifier. It emits a deterministic manifest from a
+passing audit, copies only the exact method, path, response-schema digest,
+recursively required paths, and observed x402 or MPP protocol names, and leaves
+the evidence and replay objects empty. It labels every claim seller-declared and
+does not claim settlement, paid delivery, external verification, or permission
+to spend. Review the JSON, serve it from the same HTTPS origin, advertise it
+with registered `describedby` plus the exact `agent-payment-policy` relation,
+and rerun `audit --require-purchase-evidence` before release. POST scaffolding
+requires one exact `--route` and `--assert-read-only-post`; the flag is the
+seller's explicit assertion and the tool still sends no POST.
 
 Use `--route` to audit one exact declared paid route. Whole-origin audits
 are capped at 64 paid routes by default, and `--max-routes` can lower that bound

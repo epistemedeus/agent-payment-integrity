@@ -5,8 +5,10 @@ import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { PURCHASE_EVIDENCE_RELATION, createPurchaseEvidenceManifest } from "agent-payment-policy";
 
 import {
+  SCHEMA_VERSION,
   auditIntegrity,
   buildAuditTarget,
+  createPurchaseEvidenceScaffold,
   isPublicAddress,
   normalizeOrigin,
   parseMppChallenges,
@@ -181,6 +183,16 @@ test("official Bazaar validation also enforces example against schema", () => {
   assert.ok(invalid.findings.some((finding) => finding.startsWith("bazaar_output_example_invalid")));
   const legacy = validateBazaarContract(discoveryExtension({ legacyOutputSchema: true }));
   assert.equal(legacy.valid, false);
+
+  const badFormat = discoveryExtension();
+  badFormat.schema.properties.input.properties.queryParams.properties.url.format = "uri";
+  badFormat.schema.properties.input.properties.queryParams.properties.format = { type: "string" };
+  badFormat.schema.properties.input.properties.queryParams.required.push("format");
+  badFormat.info.input.queryParams.url = "not a uri";
+  badFormat.info.input.queryParams.format = "json";
+  const formatted = validateBazaarContract(badFormat);
+  assert.equal(formatted.valid, false);
+  assert.ok(formatted.findings.some((finding) => finding.includes("bazaar_input_example_invalid") && finding.includes("format")));
 });
 
 test("parses public x402 and MPP economics without retaining opaque state", () => {
@@ -410,6 +422,65 @@ test("requires exact runtime-linked purchase evidence and binds it to current Op
   assert.ok(drifted.routes[0].findings.includes("purchase_evidence_response_contract_mismatch"));
 });
 
+test("scaffolds deterministic minimal purchase evidence only from a passing audit", async () => {
+  const report = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requestImpl: requestFixture(),
+  });
+  const first = createPurchaseEvidenceScaffold({ report, serviceVersion: "1.0.0" });
+  const second = createPurchaseEvidenceScaffold({ report, serviceVersion: "1.0.0" });
+  assert.equal(first.manifestDigest, second.manifestDigest);
+  assert.deepEqual(first.protocols, ["mpp", "x402"]);
+  assert.deepEqual(first.evidence, {});
+  assert.deepEqual(first.operations, [{
+    method: "GET",
+    path: "/read",
+    effect: "read_only",
+    output: {
+      mediaType: "application/json",
+      schemaDigest: report.routes[0].responseContract.schemaDigest,
+      requiredPaths: ["data", "data.value", "ok"],
+      declaration: "seller_declared",
+    },
+    replay: {},
+    receipt: { runtimeValidationRequired: true },
+  }]);
+  assert.equal(first.boundary.claims, "seller_declared_until_independently_verified");
+});
+
+test("scaffolding fails closed on invalid reports and requires an explicit POST assertion", async () => {
+  assert.throws(
+    () => createPurchaseEvidenceScaffold({ report: { schemaVersion: SCHEMA_VERSION, ok: false }, serviceVersion: "1.0.0" }),
+    /passing agent-payment-integrity audit/,
+  );
+  const postReport = await auditIntegrity({
+    origin: "https://api.example.com",
+    ...postDocuments({ requireAttributes: true }),
+    method: "POST",
+    route: "/simulate",
+    requiredPaths: ["data.attributes"],
+  });
+  assert.equal(postReport.ok, true);
+  assert.throws(
+    () => createPurchaseEvidenceScaffold({ report: postReport, serviceVersion: "2.0.0" }),
+    /explicit read-only assertion/,
+  );
+  const broadPostReport = structuredClone(postReport);
+  broadPostReport.selection.route = null;
+  assert.throws(
+    () => createPurchaseEvidenceScaffold({ report: broadPostReport, serviceVersion: "2.0.0", assertReadOnlyPost: true }),
+    /one exact explicitly selected route/,
+  );
+  const manifest = createPurchaseEvidenceScaffold({
+    report: postReport,
+    serviceVersion: "2.0.0",
+    assertReadOnlyPost: true,
+  });
+  assert.equal(manifest.operations[0].method, "POST");
+  assert.equal(manifest.operations[0].effect, "read_only");
+});
+
 test("verifies POST purchase evidence from the free OpenAPI entry point without sending POST", async () => {
   const declared = postDocuments({ requireAttributes: true });
   const baseline = await auditIntegrity({
@@ -559,6 +630,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.6");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.7");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

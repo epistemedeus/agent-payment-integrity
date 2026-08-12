@@ -3,6 +3,7 @@ import https from "node:https";
 import net from "node:net";
 
 import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 import ipaddr from "ipaddr.js";
 import {
   validateDiscoveryExtension,
@@ -11,13 +12,14 @@ import {
 import {
   PURCHASE_EVIDENCE_RELATION,
   SCHEMAS as POLICY_SCHEMAS,
+  createPurchaseEvidenceManifest,
   evaluateResponseContract,
   selectPurchaseEvidenceLink,
   verifyPurchaseEvidenceManifest,
 } from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
-export const TOOL_VERSION = "0.1.0-candidate.6";
+export const TOOL_VERSION = "0.1.0-candidate.7";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -355,15 +357,36 @@ function ajvErrors(errors) {
   return (errors || []).slice(0, 10).map((error) => `${error.instancePath || "/"}:${error.keyword}`);
 }
 
+function schemaWithoutFormats(value) {
+  if (Array.isArray(value)) return value.map(schemaWithoutFormats);
+  if (!isPlainObject(value)) return value;
+  const copy = structuredClone(value);
+  delete copy.format;
+  for (const key of ["additionalProperties", "contains", "else", "if", "items", "not", "propertyNames", "then", "unevaluatedItems", "unevaluatedProperties"]) {
+    if (isPlainObject(copy[key])) copy[key] = schemaWithoutFormats(copy[key]);
+  }
+  for (const key of ["allOf", "anyOf", "oneOf", "prefixItems"]) {
+    if (Array.isArray(copy[key])) copy[key] = copy[key].map(schemaWithoutFormats);
+  }
+  for (const key of ["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]) {
+    if (isPlainObject(copy[key])) {
+      copy[key] = Object.fromEntries(Object.entries(copy[key])
+        .map(([name, schema]) => [name, schemaWithoutFormats(schema)]));
+    }
+  }
+  return copy;
+}
+
 export function validateBazaarContract(extension) {
   const findings = [];
   if (!isPlainObject(extension)) return { valid: false, findings: ["bazaar_extension_missing"] };
-  const declared = validateDiscoveryExtension(extension);
+  const declared = validateDiscoveryExtension({ ...extension, schema: schemaWithoutFormats(extension.schema) });
   const spec = validateDiscoveryExtensionSpec(extension);
   if (declared.valid !== true) findings.push("bazaar_schema_invalid");
   if (spec.valid !== true) findings.push("bazaar_spec_invalid");
 
-  const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: false });
+  const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: true, logger: false });
+  addFormats(ajv);
   for (const key of ["input", "output"]) {
     const schema = extension?.schema?.properties?.[key];
     const example = extension?.info?.[key];
@@ -920,6 +943,66 @@ export async function auditOrigin({
   });
   report.safety.dnsMode = publicDns ? "explicit-public-doh" : "system-resolver";
   return report;
+}
+
+export function createPurchaseEvidenceScaffold({
+  report,
+  serviceVersion,
+  assertReadOnlyPost = false,
+} = {}) {
+  if (!isPlainObject(report) || report.schemaVersion !== SCHEMA_VERSION || report.ok !== true) {
+    throw new Error("a passing agent-payment-integrity audit report is required");
+  }
+  const origin = normalizeOrigin(report.origin).origin;
+  const version = String(serviceVersion || "").trim();
+  if (!version || version.length > 100) throw new Error("serviceVersion is required and must be at most 100 characters");
+  if (!Array.isArray(report.routes) || report.routes.length < 1 || report.routes.length > 100) {
+    throw new Error("audit report must contain 1 to 100 routes");
+  }
+  const protocols = [...new Set(report.routes.flatMap((route) => route.protocols || []))].sort();
+  if (!protocols.length || protocols.some((protocol) => !["mpp", "x402"].includes(protocol))) {
+    throw new Error("audit report has no supported payment protocol");
+  }
+  const operations = report.routes.map((route) => {
+    const method = String(route?.method || "").toUpperCase();
+    if (!route?.valid || !["GET", "POST"].includes(method)) {
+      throw new Error("every scaffolded route must be a valid GET or POST audit result");
+    }
+    if (method === "POST" && assertReadOnlyPost !== true) {
+      throw new Error("POST scaffolding requires an explicit read-only assertion");
+    }
+    if (method === "POST" && (report.routes.length !== 1 || report.selection?.route !== route.route)) {
+      throw new Error("POST scaffolding requires one exact explicitly selected route");
+    }
+    if (route.responseContract?.decision !== "admissible") {
+      throw new Error("every scaffolded route requires an admissible response contract");
+    }
+    return {
+      method,
+      path: route.route,
+      effect: "read_only",
+      output: {
+        mediaType: "application/json",
+        schemaDigest: route.responseContract.schemaDigest,
+        requiredPaths: route.responseContract.requiredPaths,
+        declaration: "seller_declared",
+      },
+      replay: {},
+      receipt: { runtimeValidationRequired: true },
+    };
+  });
+  return createPurchaseEvidenceManifest({
+    service: { origin, version },
+    protocols,
+    evidence: {},
+    operations,
+    boundary: {
+      claims: "seller_declared_until_independently_verified",
+      authorization: "This manifest is evidence for a separate buyer policy decision and is not permission to spend.",
+      runtime: "The buyer must still verify the live payment challenge, paid response, receipt, settlement, and required output.",
+      scaffold: "Generated from one passing credential-free point-in-time audit. Review, serve from the same origin, advertise the exact relation, and rerun integrity CI before release.",
+    },
+  });
 }
 
 export function toSarif(report) {
