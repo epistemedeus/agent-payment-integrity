@@ -15,6 +15,12 @@ The package therefore:
 - stores no raw payment credentials or opaque server state;
 - sends no payment header and has no wallet or signing code.
 
+POST operations receive static OpenAPI contract analysis only. The package does
+not synthesize or transmit a POST body, because even an unpaid request can
+create work or mutate state before payment middleware runs. A POST result is
+therefore never labeled machine-buyable until a separate controlled runtime
+challenge probe supplies an explicit non-secret fixture.
+
 An unpaid challenge proves only the seller's advertised contract at one point
 in time. It does not prove paid delivery, settlement, catalog indexing, seller
 identity, or future availability.

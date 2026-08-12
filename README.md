@@ -17,8 +17,10 @@ response and checks:
 5. Live x402 and MPP offers agree on amount, asset, network, recipient, and
    decimals where both are present.
 6. MPP OpenAPI offers agree with the live challenges.
-7. Each exact paid GET operation declares an admissible self-contained JSON
+7. Each exact paid GET or POST operation declares an admissible self-contained JSON
    success schema with typed required fields and recursively guaranteed paths.
+8. Caller-required dotted output paths are recursively guaranteed, rather than
+   merely described or shown in an example.
 
 It emits text, JSON, or SARIF and exits nonzero on a contract failure. It has no
 wallet, signer, facilitator credential, payment executor, or paid probe.
@@ -37,6 +39,7 @@ npm ci --ignore-scripts
 npm test
 node cli.mjs audit --origin https://agents.samedaydesk.com
 node cli.mjs audit --origin https://agents.samedaydesk.com --route /commerce/payment-offer-preflight --max-routes 1
+node cli.mjs audit --origin https://api.zerion.io --method POST --route /v1/wallets/simulation/transaction/ --required-paths data.attributes --max-routes 1 --public-dns
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
 ```
@@ -45,9 +48,16 @@ Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
 Without it, a missing Bazaar extension remains visible in the report but does
 not make an otherwise coherent payment transport fail.
 
-Use `--route` to audit one exact declared paid GET route. Whole-origin audits
+Use `--route` to audit one exact declared paid route. Whole-origin audits
 are capped at 64 paid routes by default, and `--max-routes` can lower that bound
 for CI or hosted execution.
+
+POST audits are contract-only by default. They read the seller's public OpenAPI
+declaration but do not transmit a target request or synthesize a request body.
+The report therefore keeps `runtimeChallengeVerified: false` and
+`machineBuyable: false` even when the static contract passes. This avoids
+triggering an arbitrary seller action while still identifying missing or
+underconstrained success fields. GET audits retain the live unpaid 402 probe.
 
 CI sandboxes that intentionally synthesize public DNS into reserved addresses
 can add `--public-dns`. That explicit mode resolves through DNS-over-HTTPS and

@@ -93,6 +93,35 @@ function documents() {
   };
 }
 
+function postDocuments({ requireAttributes = false } = {}) {
+  const responseSchema = {
+    type: "object",
+    required: ["data"],
+    properties: {
+      data: {
+        type: "object",
+        ...(requireAttributes ? { required: ["attributes"] } : {}),
+        properties: { attributes: { type: "object" } },
+      },
+    },
+  };
+  return {
+    x402Document: {
+      openapi: "3.1.0",
+      info: { title: "fixture", version: "1.0.0" },
+      paths: {
+        "/simulate": {
+          post: {
+            requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["address"], properties: { address: { type: "string" } } } } } },
+            responses: { 200: { content: { "application/json": { schema: responseSchema } } } },
+            "x-payment-info": { price: { amount: "0.01", currency: "USD" }, protocols: [{ x402: {} }, { mpp: {} }] },
+          },
+        },
+      },
+    },
+  };
+}
+
 function requestFixture({ extension, xOverrides, mppOverrides, resourceUrl } = {}) {
   return async (url) => ({
     status: 402,
@@ -169,7 +198,8 @@ test("passes a dual-rail declaration bound to the full runtime request", async (
     requestImpl: requestFixture(),
   });
   assert.equal(report.ok, true);
-  assert.equal(report.schemaVersion, "agent-payment-integrity.audit.v2");
+  assert.equal(report.schemaVersion, "agent-payment-integrity.audit.v3");
+  assert.equal(report.machineBuyable, true);
   assert.equal(report.routeCount, 1);
   assert.deepEqual(report.routes[0].protocols, ["mpp", "x402"]);
   assert.deepEqual(report.routes[0].findings, []);
@@ -224,7 +254,7 @@ test("audits one exact declared route and rejects absent, unsafe, or excessive s
     requestImpl: requestFixture(),
   });
   assert.equal(exact.ok, true);
-  assert.deepEqual(exact.selection, { route: "/read", maxRoutes: 1, availableRouteCount: 1 });
+  assert.deepEqual(exact.selection, { route: "/read", method: "GET", requiredPaths: [], maxRoutes: 1, availableRouteCount: 1 });
   assert.equal(exact.routeCount, 1);
 
   await assert.rejects(
@@ -246,6 +276,47 @@ test("audits one exact declared route and rejects absent, unsafe, or excessive s
     auditIntegrity({ origin: "https://example.com", ...expanded, maxRoutes: 1, requestImpl: requestFixture() }),
     /route count exceeds 1/,
   );
+});
+
+test("audits POST response contracts without transmitting the target request", async () => {
+  let requests = 0;
+  const missing = await auditIntegrity({
+    origin: "https://api.example.com",
+    ...postDocuments(),
+    method: "POST",
+    route: "/simulate",
+    requiredPaths: ["data.attributes"],
+    maxRoutes: 1,
+    requestImpl: async () => { requests += 1; throw new Error("must not send"); },
+  });
+  assert.equal(requests, 0);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.machineBuyable, false);
+  assert.deepEqual(missing.selection.requiredPaths, ["data.attributes"]);
+  assert.deepEqual(missing.routes[0].probe, { attempted: false, reason: "post_requires_explicit_non_secret_fixture" });
+  assert.equal(missing.routes[0].runtimeChallengeVerified, false);
+  assert.deepEqual(missing.routes[0].protocols, ["mpp", "x402"]);
+  assert.ok(missing.routes[0].findings.includes("seller_response_required_path_missing:data.attributes"));
+
+  const complete = await auditIntegrity({
+    origin: "https://api.example.com",
+    ...postDocuments({ requireAttributes: true }),
+    method: "POST",
+    route: "/simulate",
+    requiredPaths: ["data.attributes"],
+    maxRoutes: 1,
+    requestImpl: async () => { requests += 1; throw new Error("must not send"); },
+  });
+  assert.equal(requests, 0);
+  assert.equal(complete.ok, true);
+  assert.equal(complete.machineBuyable, false);
+  assert.deepEqual(complete.routes[0].findings, []);
+});
+
+test("rejects unsafe POST method and required-path selections", async () => {
+  await assert.rejects(auditIntegrity({ origin: "https://example.com", ...documents(), method: "DELETE" }), /GET or POST/);
+  await assert.rejects(auditIntegrity({ origin: "https://example.com", ...documents(), requiredPaths: ["data..secret"] }), /safe dotted JSON paths/);
+  await assert.rejects(auditIntegrity({ origin: "https://example.com", ...documents(), requiredPaths: Array(17).fill("data") }), /at most 16/);
 });
 
 test("fails seller CI when exact OpenAPI success output is absent or underconstrained", async () => {
@@ -320,6 +391,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.3");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.4");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

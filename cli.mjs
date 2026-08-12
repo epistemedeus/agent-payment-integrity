@@ -8,10 +8,11 @@ function usage() {
   return `agent-payment-integrity
 
 Usage:
-  agent-payment-integrity audit --origin https://seller.example [--route /exact-path] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar]
+  agent-payment-integrity audit --origin https://seller.example [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar]
 
-The audit fetches /openapi.json and optional /mpp-openapi.json, then performs
-credential-free GET probes. It never signs or sends a payment.`;
+GET audits perform a credential-free unpaid challenge probe. POST audits inspect
+the exact public OpenAPI contract without transmitting a target request. The CLI
+never signs or sends a payment.`;
 }
 
 function option(name, fallback = undefined) {
@@ -25,7 +26,7 @@ function textReport(report) {
     `${report.validRoutes}/${report.routeCount} routes valid`,
   ];
   for (const route of report.routes) {
-    lines.push(`${route.valid ? "PASS" : "FAIL"} GET ${route.route} [${route.protocols.join("+") || "none"}]`);
+    lines.push(`${route.valid ? "PASS" : "FAIL"} ${route.method} ${route.route} [${route.protocols.join("+") || "none"}]${route.runtimeChallengeVerified ? "" : " [runtime unverified]"}`);
     for (const finding of route.findings) lines.push(`  ${finding}`);
   }
   lines.push("No credentials used. No payment signed. No payment sent.");
@@ -45,9 +46,13 @@ async function main() {
   if (!["json", "text", "sarif"].includes(format)) throw new Error("--format must be json, text, or sarif");
   const maxRoutesRaw = option("max-routes", "64");
   if (!/^[1-9][0-9]*$/.test(maxRoutesRaw)) throw new Error("--max-routes must be an integer from 1 to 64");
+  const requiredPathsRaw = option("required-paths", "");
+  const requiredPaths = requiredPathsRaw ? requiredPathsRaw.split(",").map((path) => path.trim()) : [];
   const report = await auditOrigin({
     origin,
     route: option("route", null),
+    method: option("method", "GET"),
+    requiredPaths,
     maxRoutes: Number(maxRoutesRaw),
     publicDns: process.argv.includes("--public-dns"),
     requireBazaar: process.argv.includes("--require-bazaar"),

@@ -10,8 +10,8 @@ import {
 } from "@x402/extensions/bazaar";
 import { SCHEMAS as POLICY_SCHEMAS, evaluateResponseContract } from "agent-payment-policy";
 
-export const SCHEMA_VERSION = "agent-payment-integrity.audit.v2";
-export const TOOL_VERSION = "0.1.0-candidate.3";
+export const SCHEMA_VERSION = "agent-payment-integrity.audit.v3";
+export const TOOL_VERSION = "0.1.0-candidate.4";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -20,6 +20,8 @@ const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 2_000_000;
 const DEFAULT_MAX_ROUTES = 64;
+const SUPPORTED_METHODS = new Set(["GET", "POST"]);
+const REQUIRED_PATH = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){0,7}$/;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -410,10 +412,10 @@ function declaredMppOffers(operation) {
   })).filter(validEconomics);
 }
 
-function paidGetOperations(document) {
+function paidOperations(document, method) {
   const operations = new Map();
   for (const [route, item] of Object.entries(document?.paths || {})) {
-    const operation = item?.get;
+    const operation = item?.[method.toLowerCase()];
     if (operation?.["x-payment-info"]) operations.set(route, operation);
   }
   return operations;
@@ -442,13 +444,29 @@ function responseDeclaration(operation) {
   };
 }
 
-function responseContractReport(origin, route, operation) {
+function responseContractReport(origin, route, method, operation) {
   return evaluateResponseContract({
     schemaVersion: POLICY_SCHEMAS.responseContractObservation,
     source: "seller_openapi",
-    request: { method: "GET", url: new URL(route, origin).toString() },
+    request: { method, url: new URL(route, origin).toString() },
     response: responseDeclaration(operation),
   });
+}
+
+function advertisedProtocols(operation) {
+  const protocols = new Set();
+  for (const declaration of operation?.["x-payment-info"]?.protocols || []) {
+    if (!isPlainObject(declaration)) continue;
+    for (const key of Object.keys(declaration)) {
+      if (["x402", "mpp"].includes(key.toLowerCase())) protocols.add(key.toLowerCase());
+    }
+  }
+  for (const offer of operation?.["x-payment-info"]?.offers || []) {
+    const method = String(offer?.method || "").toLowerCase();
+    if (method === "x402") protocols.add("x402");
+    if (method === "evm" || method === "tempo" || method === "stripe") protocols.add("mpp");
+  }
+  return [...protocols].sort();
 }
 
 function publicEconomics(offer) {
@@ -470,11 +488,22 @@ export async function auditIntegrity({
   mppDocument = null,
   requireBazaar = false,
   route: requestedRoute = null,
+  method: requestedMethod = "GET",
+  requiredPaths = [],
   maxRoutes = DEFAULT_MAX_ROUTES,
   requestImpl = requestPinned,
 } = {}) {
   const base = normalizeOrigin(origin);
   if (!isPlainObject(x402Document)) throw new Error("x402 OpenAPI document is required");
+  const method = String(requestedMethod).toUpperCase();
+  if (!SUPPORTED_METHODS.has(method)) throw new Error("method must be GET or POST");
+  if (!Array.isArray(requiredPaths) || requiredPaths.length > 16) {
+    throw new Error("requiredPaths must contain at most 16 dotted paths");
+  }
+  const normalizedRequiredPaths = [...new Set(requiredPaths.map((path) => String(path).trim()))].sort();
+  if (normalizedRequiredPaths.some((path) => !REQUIRED_PATH.test(path))) {
+    throw new Error("requiredPaths must contain safe dotted JSON paths");
+  }
   if (!Number.isInteger(maxRoutes) || maxRoutes < 1 || maxRoutes > DEFAULT_MAX_ROUTES) {
     throw new Error(`maxRoutes must be an integer from 1 to ${DEFAULT_MAX_ROUTES}`);
   }
@@ -489,22 +518,46 @@ export async function auditIntegrity({
   ) {
     throw new Error("route must be one exact absolute path without parameters, query, or fragment");
   }
-  const xOperations = paidGetOperations(x402Document);
-  const mppOperations = mppDocument ? paidGetOperations(mppDocument) : new Map();
+  const xOperations = paidOperations(x402Document, method);
+  const mppOperations = mppDocument ? paidOperations(mppDocument, method) : new Map();
   const availableRoutes = [...new Set([...xOperations.keys(), ...mppOperations.keys()])].sort();
   const routeNames = requestedRoute === null
     ? availableRoutes
     : availableRoutes.filter((candidate) => candidate === requestedRoute);
-  if (requestedRoute !== null && routeNames.length === 0) throw new Error("exact paid GET route was not declared");
-  if (routeNames.length > maxRoutes) throw new Error(`paid GET route count exceeds ${maxRoutes}`);
+  if (requestedRoute !== null && routeNames.length === 0) throw new Error(`exact paid ${method} route was not declared`);
+  if (routeNames.length > maxRoutes) throw new Error(`paid ${method} route count exceeds ${maxRoutes}`);
   const routes = [];
 
   for (const route of routeNames) {
     const operation = xOperations.get(route) || mppOperations.get(route);
     const findings = [];
-    const responseContract = responseContractReport(base, route, operation);
+    const responseContract = responseContractReport(base, route, method, operation);
     if (responseContract.decision !== "admissible") {
       findings.push(`seller_response_contract_${responseContract.decision}`);
+    }
+    for (const path of normalizedRequiredPaths) {
+      if (!responseContract.requiredPaths.includes(path)) findings.push(`seller_response_required_path_missing:${path}`);
+    }
+
+    if (method === "POST") {
+      routes.push({
+        method,
+        route,
+        status: null,
+        queryKeys: [],
+        valid: findings.length === 0,
+        runtimeChallengeVerified: false,
+        probe: { attempted: false, reason: "post_requires_explicit_non_secret_fixture" },
+        findings,
+        protocols: [...new Set([
+          ...advertisedProtocols(xOperations.get(route)),
+          ...advertisedProtocols(mppOperations.get(route)),
+        ])].sort(),
+        economics: null,
+        discovery: { bazaar: { present: null, valid: null } },
+        responseContract,
+      });
+      continue;
     }
     let target;
     let queryKeys = [];
@@ -512,10 +565,13 @@ export async function auditIntegrity({
       ({ url: target, queryKeys } = buildAuditTarget(base, route, operation));
     } catch (error) {
       routes.push({
+        method,
         route,
         status: null,
         queryKeys,
         valid: false,
+        runtimeChallengeVerified: false,
+        probe: { attempted: false, reason: "target_not_constructible" },
         findings: [`target_invalid:${error.message}`],
         protocols: [],
       });
@@ -526,7 +582,7 @@ export async function auditIntegrity({
     try {
       response = await requestImpl(target, { accept: "application/json" });
     } catch {
-      routes.push({ route, status: null, queryKeys, valid: false, findings: ["credential_free_probe_failed"], protocols: [] });
+      routes.push({ method, route, status: null, queryKeys, valid: false, runtimeChallengeVerified: false, probe: { attempted: true, reason: "request_failed" }, findings: ["credential_free_probe_failed"], protocols: [] });
       continue;
     }
     if (response.status !== 402) findings.push(`expected_402_received_${response.status}`);
@@ -571,10 +627,13 @@ export async function auditIntegrity({
     }
 
     routes.push({
+      method,
       route,
       status: response.status,
       queryKeys,
       valid: findings.length === 0,
+      runtimeChallengeVerified: response.status === 402,
+      probe: { attempted: true, reason: null },
       findings,
       protocols: [...new Set(protocols)].sort(),
       economics: {
@@ -589,6 +648,7 @@ export async function auditIntegrity({
   }
 
   const invalidRoutes = routes.filter((entry) => !entry.valid).length;
+  const machineBuyable = invalidRoutes === 0 && routes.length > 0 && routes.every((entry) => entry.runtimeChallengeVerified);
   return {
     schemaVersion: SCHEMA_VERSION,
     checkedAt: new Date().toISOString(),
@@ -599,6 +659,8 @@ export async function auditIntegrity({
     },
     selection: {
       route: requestedRoute,
+      method,
+      requiredPaths: normalizedRequiredPaths,
       maxRoutes,
       availableRouteCount: availableRoutes.length,
     },
@@ -606,6 +668,7 @@ export async function auditIntegrity({
     validRoutes: routes.length - invalidRoutes,
     invalidRoutes,
     ok: invalidRoutes === 0 && routes.length > 0,
+    machineBuyable,
     routes,
     safety: {
       credentialsUsed: false,
@@ -630,6 +693,8 @@ export async function auditOrigin({
   publicDns = false,
   requireBazaar = false,
   route = null,
+  method = "GET",
+  requiredPaths = [],
   maxRoutes = DEFAULT_MAX_ROUTES,
 } = {}) {
   const base = normalizeOrigin(origin);
@@ -648,6 +713,8 @@ export async function auditOrigin({
     mppDocument,
     requireBazaar,
     route,
+    method,
+    requiredPaths,
     maxRoutes,
     requestImpl: boundRequest,
   });
@@ -659,7 +726,7 @@ export function toSarif(report) {
   const results = report.routes.flatMap((route) => route.findings.map((finding) => ({
     ruleId: finding.split(":", 1)[0],
     level: "error",
-    message: { text: `${route.route}: ${finding}` },
+    message: { text: `${route.method || "GET"} ${route.route}: ${finding}` },
     locations: [{ physicalLocation: { artifactLocation: { uri: report.origin + route.route } } }],
   })));
   return {
