@@ -30,6 +30,12 @@ retain only the exact route binding, schema digest, required fields and paths,
 controlled structural findings, and example consistency. They do not retain the
 seller schema, example values, query values, credentials, or payment material.
 
+For caller-required paths, audit v4 also returns a bounded advisory repair plan.
+It identifies declared properties that need an OpenAPI `required` membership and
+missing nested properties that still need a seller-confirmed schema. It does not
+infer property types, mutate seller files, or claim that a static repair matches
+runtime behavior.
+
 ## Try it
 
 ```bash

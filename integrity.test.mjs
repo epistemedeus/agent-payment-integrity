@@ -198,7 +198,7 @@ test("passes a dual-rail declaration bound to the full runtime request", async (
     requestImpl: requestFixture(),
   });
   assert.equal(report.ok, true);
-  assert.equal(report.schemaVersion, "agent-payment-integrity.audit.v3");
+  assert.equal(report.schemaVersion, "agent-payment-integrity.audit.v4");
   assert.equal(report.machineBuyable, true);
   assert.equal(report.routeCount, 1);
   assert.deepEqual(report.routes[0].protocols, ["mpp", "x402"]);
@@ -297,6 +297,26 @@ test("audits POST response contracts without transmitting the target request", a
   assert.equal(missing.routes[0].runtimeChallengeVerified, false);
   assert.deepEqual(missing.routes[0].protocols, ["mpp", "x402"]);
   assert.ok(missing.routes[0].findings.includes("seller_response_required_path_missing:data.attributes"));
+  assert.deepEqual(missing.routes[0].repairPlan, {
+    mode: "advisory_openapi_repair",
+    requiredPaths: ["data.attributes"],
+    guaranteedPaths: [],
+    actions: [{
+      requiredPath: "data.attributes",
+      action: "add_property_to_required",
+      parentPath: "data",
+      property: "attributes",
+      propertyDeclared: true,
+      propertyType: "object",
+    }],
+    complete: false,
+    boundary: {
+      schemaMutationApplied: false,
+      propertyTypesInferred: false,
+      sellerRuntimeVerified: false,
+      statement: "Apply only after the seller confirms each property's real runtime type and semantics, then rerun integrity CI.",
+    },
+  });
 
   const complete = await auditIntegrity({
     origin: "https://api.example.com",
@@ -311,6 +331,30 @@ test("audits POST response contracts without transmitting the target request", a
   assert.equal(complete.ok, true);
   assert.equal(complete.machineBuyable, false);
   assert.deepEqual(complete.routes[0].findings, []);
+  assert.equal(complete.routes[0].repairPlan.complete, true);
+  assert.deepEqual(complete.routes[0].repairPlan.guaranteedPaths, ["data.attributes"]);
+});
+
+test("returns bounded repair actions without inventing missing property types", async () => {
+  const missingProperty = postDocuments();
+  delete missingProperty.x402Document.paths["/simulate"].post.responses[200].content["application/json"].schema.properties.data.properties.attributes;
+  const result = await auditIntegrity({
+    origin: "https://api.example.com",
+    ...missingProperty,
+    method: "POST",
+    route: "/simulate",
+    requiredPaths: ["data.attributes.value"],
+    maxRoutes: 1,
+  });
+  assert.deepEqual(result.routes[0].repairPlan.actions, [{
+    requiredPath: "data.attributes.value",
+    action: "define_and_require_property",
+    parentPath: "data",
+    property: "attributes",
+    propertyDeclared: false,
+    propertyType: null,
+  }]);
+  assert.equal(result.routes[0].repairPlan.boundary.propertyTypesInferred, false);
 });
 
 test("rejects unsafe POST method and required-path selections", async () => {
@@ -391,6 +435,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.4");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.5");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

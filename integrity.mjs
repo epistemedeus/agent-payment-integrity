@@ -10,8 +10,8 @@ import {
 } from "@x402/extensions/bazaar";
 import { SCHEMAS as POLICY_SCHEMAS, evaluateResponseContract } from "agent-payment-policy";
 
-export const SCHEMA_VERSION = "agent-payment-integrity.audit.v3";
-export const TOOL_VERSION = "0.1.0-candidate.4";
+export const SCHEMA_VERSION = "agent-payment-integrity.audit.v4";
+export const TOOL_VERSION = "0.1.0-candidate.5";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -453,6 +453,74 @@ function responseContractReport(origin, route, method, operation) {
   });
 }
 
+function responseContractRepairPlan(operation, requestedPaths, guaranteedPaths) {
+  const declaration = responseDeclaration(operation);
+  const schema = declaration.schema;
+  const guaranteed = new Set(guaranteedPaths);
+  const actions = [];
+
+  for (const requiredPath of requestedPaths) {
+    if (guaranteed.has(requiredPath)) continue;
+    const segments = requiredPath.split(".");
+    let current = schema;
+    const traversed = [];
+    for (const property of segments) {
+      const parentPath = traversed.length ? traversed.join(".") : "$";
+      if (!isPlainObject(current)) {
+        actions.push({
+          requiredPath,
+          action: "define_nested_property_path",
+          parentPath,
+          property,
+          propertyDeclared: false,
+          propertyType: null,
+        });
+        break;
+      }
+      const properties = isPlainObject(current.properties) ? current.properties : {};
+      const propertySchema = isPlainObject(properties[property]) ? properties[property] : null;
+      if (!propertySchema) {
+        actions.push({
+          requiredPath,
+          action: "define_and_require_property",
+          parentPath,
+          property,
+          propertyDeclared: false,
+          propertyType: null,
+        });
+        break;
+      }
+      const required = Array.isArray(current.required) ? current.required : [];
+      if (!required.includes(property)) {
+        actions.push({
+          requiredPath,
+          action: "add_property_to_required",
+          parentPath,
+          property,
+          propertyDeclared: true,
+          propertyType: typeof propertySchema.type === "string" ? propertySchema.type : null,
+        });
+      }
+      traversed.push(property);
+      current = propertySchema;
+    }
+  }
+
+  return {
+    mode: "advisory_openapi_repair",
+    requiredPaths: [...requestedPaths],
+    guaranteedPaths: requestedPaths.filter((path) => guaranteed.has(path)),
+    actions,
+    complete: actions.length === 0,
+    boundary: {
+      schemaMutationApplied: false,
+      propertyTypesInferred: false,
+      sellerRuntimeVerified: false,
+      statement: "Apply only after the seller confirms each property's real runtime type and semantics, then rerun integrity CI.",
+    },
+  };
+}
+
 function advertisedProtocols(operation) {
   const protocols = new Set();
   for (const declaration of operation?.["x-payment-info"]?.protocols || []) {
@@ -532,6 +600,7 @@ export async function auditIntegrity({
     const operation = xOperations.get(route) || mppOperations.get(route);
     const findings = [];
     const responseContract = responseContractReport(base, route, method, operation);
+    const repairPlan = responseContractRepairPlan(operation, normalizedRequiredPaths, responseContract.requiredPaths);
     if (responseContract.decision !== "admissible") {
       findings.push(`seller_response_contract_${responseContract.decision}`);
     }
@@ -556,6 +625,7 @@ export async function auditIntegrity({
         economics: null,
         discovery: { bazaar: { present: null, valid: null } },
         responseContract,
+        repairPlan,
       });
       continue;
     }
@@ -644,6 +714,7 @@ export async function auditIntegrity({
         bazaar: bazaarObservation,
       },
       responseContract,
+      repairPlan,
     });
   }
 
