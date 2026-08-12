@@ -36,6 +36,7 @@ cd agent-payment-integrity
 npm ci --ignore-scripts
 npm test
 node cli.mjs audit --origin https://agents.samedaydesk.com
+node cli.mjs audit --origin https://agents.samedaydesk.com --route /commerce/payment-offer-preflight --max-routes 1
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
 ```
@@ -43,6 +44,10 @@ node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out 
 Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
 Without it, a missing Bazaar extension remains visible in the report but does
 not make an otherwise coherent payment transport fail.
+
+Use `--route` to audit one exact declared paid GET route. Whole-origin audits
+are capped at 64 paid routes by default, and `--max-routes` can lower that bound
+for CI or hosted execution.
 
 CI sandboxes that intentionally synthesize public DNS into reserved addresses
 can add `--public-dns`. That explicit mode resolves through DNS-over-HTTPS and

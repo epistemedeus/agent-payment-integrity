@@ -8,7 +8,7 @@ function usage() {
   return `agent-payment-integrity
 
 Usage:
-  agent-payment-integrity audit --origin https://seller.example [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar]
+  agent-payment-integrity audit --origin https://seller.example [--route /exact-path] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar]
 
 The audit fetches /openapi.json and optional /mpp-openapi.json, then performs
 credential-free GET probes. It never signs or sends a payment.`;
@@ -43,8 +43,12 @@ async function main() {
   if (!origin) throw new Error("--origin is required");
   const format = option("format", "text");
   if (!["json", "text", "sarif"].includes(format)) throw new Error("--format must be json, text, or sarif");
+  const maxRoutesRaw = option("max-routes", "64");
+  if (!/^[1-9][0-9]*$/.test(maxRoutesRaw)) throw new Error("--max-routes must be an integer from 1 to 64");
   const report = await auditOrigin({
     origin,
+    route: option("route", null),
+    maxRoutes: Number(maxRoutesRaw),
     publicDns: process.argv.includes("--public-dns"),
     requireBazaar: process.argv.includes("--require-bazaar"),
   });

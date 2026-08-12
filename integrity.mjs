@@ -11,7 +11,7 @@ import {
 import { SCHEMAS as POLICY_SCHEMAS, evaluateResponseContract } from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v2";
-export const TOOL_VERSION = "0.1.0-candidate.2";
+export const TOOL_VERSION = "0.1.0-candidate.3";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -19,6 +19,7 @@ const DECIMAL_INTEGER = /^(?:0|[1-9][0-9]{0,77})$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 2_000_000;
+const DEFAULT_MAX_ROUTES = 64;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -468,13 +469,34 @@ export async function auditIntegrity({
   x402Document,
   mppDocument = null,
   requireBazaar = false,
+  route: requestedRoute = null,
+  maxRoutes = DEFAULT_MAX_ROUTES,
   requestImpl = requestPinned,
 } = {}) {
   const base = normalizeOrigin(origin);
   if (!isPlainObject(x402Document)) throw new Error("x402 OpenAPI document is required");
+  if (!Number.isInteger(maxRoutes) || maxRoutes < 1 || maxRoutes > DEFAULT_MAX_ROUTES) {
+    throw new Error(`maxRoutes must be an integer from 1 to ${DEFAULT_MAX_ROUTES}`);
+  }
+  if (
+    requestedRoute !== null
+    && (
+      !ROUTE_PATTERN.test(requestedRoute)
+      || !requestedRoute.startsWith("/")
+      || requestedRoute.startsWith("//")
+      || requestedRoute.includes("{")
+    )
+  ) {
+    throw new Error("route must be one exact absolute path without parameters, query, or fragment");
+  }
   const xOperations = paidGetOperations(x402Document);
   const mppOperations = mppDocument ? paidGetOperations(mppDocument) : new Map();
-  const routeNames = [...new Set([...xOperations.keys(), ...mppOperations.keys()])].sort();
+  const availableRoutes = [...new Set([...xOperations.keys(), ...mppOperations.keys()])].sort();
+  const routeNames = requestedRoute === null
+    ? availableRoutes
+    : availableRoutes.filter((candidate) => candidate === requestedRoute);
+  if (requestedRoute !== null && routeNames.length === 0) throw new Error("exact paid GET route was not declared");
+  if (routeNames.length > maxRoutes) throw new Error(`paid GET route count exceeds ${maxRoutes}`);
   const routes = [];
 
   for (const route of routeNames) {
@@ -575,6 +597,11 @@ export async function auditIntegrity({
       x402: x402Document?.info?.version || null,
       mpp: mppDocument?.info?.version || null,
     },
+    selection: {
+      route: requestedRoute,
+      maxRoutes,
+      availableRouteCount: availableRoutes.length,
+    },
     routeCount: routes.length,
     validRoutes: routes.length - invalidRoutes,
     invalidRoutes,
@@ -602,6 +629,8 @@ export async function auditOrigin({
   requestImpl = requestPinned,
   publicDns = false,
   requireBazaar = false,
+  route = null,
+  maxRoutes = DEFAULT_MAX_ROUTES,
 } = {}) {
   const base = normalizeOrigin(origin);
   const requestOptions = { userAgent: "agent-payment-integrity/0.1", publicDns };
@@ -613,7 +642,15 @@ export async function auditOrigin({
     if (!String(error?.message).includes("HTTP 404")) throw error;
   }
   const boundRequest = (url, options = {}) => requestImpl(url, { ...requestOptions, ...options });
-  const report = await auditIntegrity({ origin: base, x402Document, mppDocument, requireBazaar, requestImpl: boundRequest });
+  const report = await auditIntegrity({
+    origin: base,
+    x402Document,
+    mppDocument,
+    requireBazaar,
+    route,
+    maxRoutes,
+    requestImpl: boundRequest,
+  });
   report.safety.dnsMode = publicDns ? "explicit-public-doh" : "system-resolver";
   return report;
 }

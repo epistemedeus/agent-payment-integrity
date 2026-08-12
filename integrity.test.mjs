@@ -215,6 +215,39 @@ test("treats an omitted optional Bazaar extension as a discovery state, not a pa
   assert.ok(strict.routes[0].findings.includes("bazaar_extension_missing"));
 });
 
+test("audits one exact declared route and rejects absent, unsafe, or excessive selections", async () => {
+  const exact = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    route: "/read",
+    maxRoutes: 1,
+    requestImpl: requestFixture(),
+  });
+  assert.equal(exact.ok, true);
+  assert.deepEqual(exact.selection, { route: "/read", maxRoutes: 1, availableRouteCount: 1 });
+  assert.equal(exact.routeCount, 1);
+
+  await assert.rejects(
+    auditIntegrity({ origin: "https://example.com", ...documents(), route: "/missing", requestImpl: requestFixture() }),
+    /not declared/,
+  );
+  await assert.rejects(
+    auditIntegrity({ origin: "https://example.com", ...documents(), route: "//other.example/read", requestImpl: requestFixture() }),
+    /exact absolute path/,
+  );
+  await assert.rejects(
+    auditIntegrity({ origin: "https://example.com", ...documents(), maxRoutes: 65, requestImpl: requestFixture() }),
+    /from 1 to 64/,
+  );
+
+  const expanded = documents();
+  expanded.x402Document.paths["/second"] = expanded.x402Document.paths["/read"];
+  await assert.rejects(
+    auditIntegrity({ origin: "https://example.com", ...expanded, maxRoutes: 1, requestImpl: requestFixture() }),
+    /route count exceeds 1/,
+  );
+});
+
 test("fails seller CI when exact OpenAPI success output is absent or underconstrained", async () => {
   const absentDocuments = documents();
   delete absentDocuments.x402Document.paths["/read"].get.responses;
@@ -287,6 +320,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.2");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.3");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });
