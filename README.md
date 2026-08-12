@@ -21,11 +21,16 @@ response and checks:
    success schema with typed required fields and recursively guaranteed paths.
 8. Caller-required dotted output paths are recursively guaranteed, rather than
    merely described or shown in an example.
+9. Optional neutral purchase evidence is advertised through registered
+   `describedby` plus the exact `agent-payment-policy` extension relation, binds
+   the exact method and path, and still matches the seller's current OpenAPI
+   schema digest and complete recursively required-path set.
 
 It emits text, JSON, or SARIF and exits nonzero on a contract failure. It has no
 wallet, signer, facilitator credential, payment executor, or paid probe.
 
-Response-contract evidence comes from `agent-payment-policy@0.11.1`. Reports
+Response-contract and purchase-evidence contracts come from
+`agent-payment-policy@0.12.0`. Reports
 retain only the exact route binding, schema digest, required fields and paths,
 controlled structural findings, and example consistency. They do not retain the
 seller schema, example values, query values, credentials, or payment material.
@@ -47,12 +52,21 @@ node cli.mjs audit --origin https://agents.samedaydesk.com
 node cli.mjs audit --origin https://agents.samedaydesk.com --route /commerce/payment-offer-preflight --max-routes 1
 node cli.mjs audit --origin https://api.zerion.io --method POST --route /v1/wallets/simulation/transaction/ --required-paths data.attributes --max-routes 1 --public-dns
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
+node cli.mjs audit --origin https://agents.samedaydesk.com --require-purchase-evidence
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
 ```
 
 Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
 Without it, a missing Bazaar extension remains visible in the report but does
 not make an otherwise coherent payment transport fail.
+
+Use `--require-purchase-evidence` when a seller release must publish the
+neutral pre-purchase profile. For GET, the CLI selects the exact relation from
+the live unpaid 402. For POST, it selects the same relation from the free
+OpenAPI entry-point response and does not transmit a seller POST. In both cases
+it verifies the manifest digest and exact operation, then cross-checks the
+manifest's schema digest and complete required-path set against the current
+OpenAPI declaration. A generic unrelated `describedby` link is ignored.
 
 Use `--route` to audit one exact declared paid route. Whole-origin audits
 are capped at 64 paid routes by default, and `--max-routes` can lower that bound

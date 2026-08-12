@@ -8,7 +8,7 @@ function usage() {
   return `agent-payment-integrity
 
 Usage:
-  agent-payment-integrity audit --origin https://seller.example [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar]
+  agent-payment-integrity audit --origin https://seller.example [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar] [--require-purchase-evidence]
 
 GET audits perform a credential-free unpaid challenge probe. POST audits inspect
 the exact public OpenAPI contract without transmitting a target request. The CLI
@@ -56,6 +56,7 @@ async function main() {
     maxRoutes: Number(maxRoutesRaw),
     publicDns: process.argv.includes("--public-dns"),
     requireBazaar: process.argv.includes("--require-bazaar"),
+    requirePurchaseEvidence: process.argv.includes("--require-purchase-evidence"),
   });
   const output = format === "text"
     ? textReport(report)

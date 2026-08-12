@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
+import { PURCHASE_EVIDENCE_RELATION, createPurchaseEvidenceManifest } from "agent-payment-policy";
 
 import {
   auditIntegrity,
@@ -122,12 +123,13 @@ function postDocuments({ requireAttributes = false } = {}) {
   };
 }
 
-function requestFixture({ extension, xOverrides, mppOverrides, resourceUrl } = {}) {
+function requestFixture({ extension, xOverrides, mppOverrides, resourceUrl, link } = {}) {
   return async (url) => ({
     status: 402,
     headers: {
       "payment-required": x402Header(resourceUrl || url.toString(), extension || discoveryExtension(), xOverrides),
       "www-authenticate": mppHeader(mppOverrides),
+      ...(link ? { link } : {}),
     },
     body: Buffer.alloc(0),
   });
@@ -198,7 +200,7 @@ test("passes a dual-rail declaration bound to the full runtime request", async (
     requestImpl: requestFixture(),
   });
   assert.equal(report.ok, true);
-  assert.equal(report.schemaVersion, "agent-payment-integrity.audit.v4");
+  assert.equal(report.schemaVersion, "agent-payment-integrity.audit.v5");
   assert.equal(report.machineBuyable, true);
   assert.equal(report.routeCount, 1);
   assert.deepEqual(report.routes[0].protocols, ["mpp", "x402"]);
@@ -235,13 +237,13 @@ test("treats an omitted optional Bazaar extension as a discovery state, not a pa
   });
   const report = await auditIntegrity({ origin: "https://example.com", ...documents(), requestImpl });
   assert.equal(report.ok, true);
-  assert.deepEqual(report.policy, { requireBazaar: false });
+  assert.deepEqual(report.policy, { requireBazaar: false, requirePurchaseEvidence: false });
   assert.deepEqual(report.routes[0].discovery.bazaar, { present: false, valid: null });
   assert.equal(report.routes[0].findings.includes("bazaar_extension_missing"), false);
 
   const strict = await auditIntegrity({ origin: "https://example.com", ...documents(), requireBazaar: true, requestImpl });
   assert.equal(strict.ok, false);
-  assert.deepEqual(strict.policy, { requireBazaar: true });
+  assert.deepEqual(strict.policy, { requireBazaar: true, requirePurchaseEvidence: false });
   assert.ok(strict.routes[0].findings.includes("bazaar_extension_missing"));
 });
 
@@ -333,6 +335,128 @@ test("audits POST response contracts without transmitting the target request", a
   assert.deepEqual(complete.routes[0].findings, []);
   assert.equal(complete.routes[0].repairPlan.complete, true);
   assert.deepEqual(complete.routes[0].repairPlan.guaranteedPaths, ["data.attributes"]);
+});
+
+test("requires exact runtime-linked purchase evidence and binds it to current OpenAPI", async () => {
+  const baseline = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requestImpl: requestFixture(),
+  });
+  const contract = baseline.routes[0].responseContract;
+  const manifest = createPurchaseEvidenceManifest({
+    service: { origin: "https://example.com", version: "1.0.0" },
+    protocols: ["x402", "mpp"],
+    evidence: {},
+    operations: [{
+      method: "GET",
+      path: "/read",
+      effect: "read_only",
+      output: {
+        mediaType: "application/json",
+        schemaDigest: contract.schemaDigest,
+        requiredPaths: contract.requiredPaths,
+        declaration: "seller_declared",
+      },
+      replay: {},
+      receipt: { runtimeValidationRequired: true },
+    }],
+    boundary: {},
+  });
+  const manifestUrl = "https://example.com/.well-known/agent-payment-evidence.json";
+  const link = `<${manifestUrl}>; rel="describedby ${PURCHASE_EVIDENCE_RELATION}"; type="application/json"`;
+  const verified = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requirePurchaseEvidence: true,
+    requestImpl: requestFixture({ link }),
+    purchaseEvidenceLoader: async (url) => {
+      assert.equal(url, manifestUrl);
+      return manifest;
+    },
+  });
+  assert.equal(verified.ok, true);
+  assert.deepEqual(verified.routes[0].purchaseEvidence, {
+    status: "verified",
+    source: "runtime_402",
+    relation: PURCHASE_EVIDENCE_RELATION,
+    manifestUrl,
+    manifestDigest: manifest.manifestDigest,
+    serviceVersion: "1.0.0",
+    responseSchemaDigest: contract.schemaDigest,
+    requiredPaths: contract.requiredPaths,
+    declaration: "seller_declared",
+  });
+
+  const unrelated = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requirePurchaseEvidence: true,
+    requestImpl: requestFixture({ link: '<https://example.com/openapi.json>; rel="describedby"' }),
+    purchaseEvidenceLoader: async () => assert.fail("unrelated documentation must not be fetched"),
+  });
+  assert.ok(unrelated.routes[0].findings.includes("purchase_evidence_required"));
+
+  const changed = structuredClone(manifest);
+  changed.operations[0].output.schemaDigest = `sha256:${"f".repeat(64)}`;
+  const rebuilt = createPurchaseEvidenceManifest(changed);
+  const drifted = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requirePurchaseEvidence: true,
+    requestImpl: requestFixture({ link }),
+    purchaseEvidenceLoader: async () => rebuilt,
+  });
+  assert.ok(drifted.routes[0].findings.includes("purchase_evidence_response_contract_mismatch"));
+});
+
+test("verifies POST purchase evidence from the free OpenAPI entry point without sending POST", async () => {
+  const declared = postDocuments({ requireAttributes: true });
+  const baseline = await auditIntegrity({
+    origin: "https://api.example.com",
+    ...declared,
+    method: "POST",
+    route: "/simulate",
+    requiredPaths: ["data.attributes"],
+  });
+  const contract = baseline.routes[0].responseContract;
+  const manifest = createPurchaseEvidenceManifest({
+    service: { origin: "https://api.example.com", version: "2.0.0" },
+    protocols: ["x402", "mpp"],
+    evidence: {},
+    operations: [{
+      method: "POST",
+      path: "/simulate",
+      effect: "read_only",
+      output: {
+        mediaType: "application/json",
+        schemaDigest: contract.schemaDigest,
+        requiredPaths: contract.requiredPaths,
+        declaration: "seller_declared",
+      },
+      replay: {},
+      receipt: { runtimeValidationRequired: true },
+    }],
+    boundary: {},
+  });
+  let sellerRequests = 0;
+  const manifestUrl = "https://api.example.com/evidence.json";
+  const report = await auditIntegrity({
+    origin: "https://api.example.com",
+    ...declared,
+    method: "POST",
+    route: "/simulate",
+    requiredPaths: ["data.attributes"],
+    requirePurchaseEvidence: true,
+    purchaseEvidenceLink: `<${manifestUrl}>; rel="describedby ${PURCHASE_EVIDENCE_RELATION}"`,
+    purchaseEvidenceLoader: async () => manifest,
+    requestImpl: async () => { sellerRequests += 1; throw new Error("must not send seller POST"); },
+  });
+  assert.equal(sellerRequests, 0);
+  assert.equal(report.ok, true);
+  assert.equal(report.machineBuyable, false);
+  assert.equal(report.routes[0].purchaseEvidence.status, "verified");
+  assert.equal(report.routes[0].purchaseEvidence.source, "openapi_entrypoint");
 });
 
 test("returns bounded repair actions without inventing missing property types", async () => {
@@ -435,6 +559,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.5");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.6");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

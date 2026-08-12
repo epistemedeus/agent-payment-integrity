@@ -8,10 +8,16 @@ import {
   validateDiscoveryExtension,
   validateDiscoveryExtensionSpec,
 } from "@x402/extensions/bazaar";
-import { SCHEMAS as POLICY_SCHEMAS, evaluateResponseContract } from "agent-payment-policy";
+import {
+  PURCHASE_EVIDENCE_RELATION,
+  SCHEMAS as POLICY_SCHEMAS,
+  evaluateResponseContract,
+  selectPurchaseEvidenceLink,
+  verifyPurchaseEvidenceManifest,
+} from "agent-payment-policy";
 
-export const SCHEMA_VERSION = "agent-payment-integrity.audit.v4";
-export const TOOL_VERSION = "0.1.0-candidate.5";
+export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
+export const TOOL_VERSION = "0.1.0-candidate.6";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -204,14 +210,18 @@ export async function requestPinned(urlInput, {
   });
 }
 
-async function fetchJson(url, { requestImpl = requestPinned, requestOptions = {} } = {}) {
+async function fetchJsonResponse(url, { requestImpl = requestPinned, requestOptions = {} } = {}) {
   const response = await requestImpl(url, requestOptions);
   if (response.status !== 200) throw new Error(`document returned HTTP ${response.status}`);
   try {
-    return JSON.parse(response.body.toString("utf8"));
+    return { document: JSON.parse(response.body.toString("utf8")), response };
   } catch {
     throw new Error("document did not return JSON");
   }
+}
+
+async function fetchJson(url, options = {}) {
+  return (await fetchJsonResponse(url, options)).document;
 }
 
 function parameterExample(parameter) {
@@ -521,6 +531,67 @@ function responseContractRepairPlan(operation, requestedPaths, guaranteedPaths) 
   };
 }
 
+function purchaseEvidenceFailure(error) {
+  const message = String(error?.message || "");
+  if (/same-origin|exactly one|manifest URL|context URL/.test(message)) return "link_invalid";
+  if (/unavailable|returned HTTP|did not return JSON|request|timeout|redirect|exceeded/.test(message)) return "document_unavailable";
+  if (/schema digest|guarantee|required paths/.test(message)) return "response_contract_mismatch";
+  return "contract_invalid";
+}
+
+async function purchaseEvidenceObservation({
+  base,
+  target,
+  method,
+  requiredPaths,
+  responseContract,
+  linkHeader,
+  manifestLoader,
+  source,
+} = {}) {
+  let manifestUrl;
+  try {
+    manifestUrl = selectPurchaseEvidenceLink(linkHeader, target);
+  } catch (error) {
+    return { status: "invalid", reason: purchaseEvidenceFailure(error), source, relation: PURCHASE_EVIDENCE_RELATION };
+  }
+  if (!manifestUrl) return { status: "missing", source, relation: PURCHASE_EVIDENCE_RELATION };
+  if (typeof manifestLoader !== "function") {
+    return { status: "unverified", reason: "manifest_loader_missing", source, relation: PURCHASE_EVIDENCE_RELATION, manifestUrl };
+  }
+  try {
+    const manifest = await manifestLoader(manifestUrl);
+    const binding = verifyPurchaseEvidenceManifest(manifest, {
+      target,
+      method,
+      requiredPaths: responseContract.requiredPaths,
+    });
+    const operation = manifest.operations.find((entry) => entry.method === method && entry.path === target.pathname);
+    const declaredPaths = [...operation.output.requiredPaths].sort();
+    const currentPaths = [...responseContract.requiredPaths].sort();
+    if (
+      binding.responseSchemaDigest !== responseContract.schemaDigest
+      || JSON.stringify(declaredPaths) !== JSON.stringify(currentPaths)
+      || !requiredPaths.every((path) => declaredPaths.includes(path))
+    ) {
+      throw new Error("purchase evidence response schema digest or required paths changed");
+    }
+    return {
+      status: "verified",
+      source,
+      relation: PURCHASE_EVIDENCE_RELATION,
+      manifestUrl,
+      manifestDigest: binding.manifestDigest,
+      serviceVersion: binding.serviceVersion,
+      responseSchemaDigest: binding.responseSchemaDigest,
+      requiredPaths: declaredPaths,
+      declaration: binding.declaration,
+    };
+  } catch (error) {
+    return { status: "invalid", reason: purchaseEvidenceFailure(error), source, relation: PURCHASE_EVIDENCE_RELATION, manifestUrl };
+  }
+}
+
 function advertisedProtocols(operation) {
   const protocols = new Set();
   for (const declaration of operation?.["x-payment-info"]?.protocols || []) {
@@ -555,6 +626,9 @@ export async function auditIntegrity({
   x402Document,
   mppDocument = null,
   requireBazaar = false,
+  requirePurchaseEvidence = false,
+  purchaseEvidenceLink = null,
+  purchaseEvidenceLoader = null,
   route: requestedRoute = null,
   method: requestedMethod = "GET",
   requiredPaths = [],
@@ -609,6 +683,19 @@ export async function auditIntegrity({
     }
 
     if (method === "POST") {
+      const target = new URL(route, base);
+      const purchaseEvidence = await purchaseEvidenceObservation({
+        base,
+        target,
+        method,
+        requiredPaths: normalizedRequiredPaths,
+        responseContract,
+        linkHeader: purchaseEvidenceLink,
+        manifestLoader: purchaseEvidenceLoader,
+        source: "openapi_entrypoint",
+      });
+      if (purchaseEvidence.status === "invalid") findings.push(`purchase_evidence_${purchaseEvidence.reason}`);
+      if (requirePurchaseEvidence && purchaseEvidence.status !== "verified") findings.push("purchase_evidence_required");
       routes.push({
         method,
         route,
@@ -626,6 +713,7 @@ export async function auditIntegrity({
         discovery: { bazaar: { present: null, valid: null } },
         responseContract,
         repairPlan,
+        purchaseEvidence,
       });
       continue;
     }
@@ -656,6 +744,20 @@ export async function auditIntegrity({
       continue;
     }
     if (response.status !== 402) findings.push(`expected_402_received_${response.status}`);
+
+    const livePurchaseLink = response.headers?.link || null;
+    const purchaseEvidence = await purchaseEvidenceObservation({
+      base,
+      target,
+      method,
+      requiredPaths: normalizedRequiredPaths,
+      responseContract,
+      linkHeader: livePurchaseLink,
+      manifestLoader: purchaseEvidenceLoader,
+      source: "runtime_402",
+    });
+    if (purchaseEvidence.status === "invalid") findings.push(`purchase_evidence_${purchaseEvidence.reason}`);
+    if (requirePurchaseEvidence && purchaseEvidence.status !== "verified") findings.push("purchase_evidence_required");
 
     const x402 = parseX402Challenge(response.headers?.["payment-required"] || response.headers?.["x-payment-required"]);
     const mpp = parseMppChallenges(response.headers?.["www-authenticate"]);
@@ -715,6 +817,7 @@ export async function auditIntegrity({
       },
       responseContract,
       repairPlan,
+      purchaseEvidence,
     });
   }
 
@@ -751,7 +854,7 @@ export async function auditIntegrity({
       opaqueStateRetained: false,
       queryValuesRetained: false,
     },
-    policy: { requireBazaar },
+    policy: { requireBazaar, requirePurchaseEvidence },
     boundary: "Unpaid point-in-time contract integrity only. No claim about settlement, paid delivery, catalog indexing, identity, or future availability.",
   };
 }
@@ -763,6 +866,7 @@ export async function auditOrigin({
   requestImpl = requestPinned,
   publicDns = false,
   requireBazaar = false,
+  requirePurchaseEvidence = false,
   route = null,
   method = "GET",
   requiredPaths = [],
@@ -770,19 +874,44 @@ export async function auditOrigin({
 } = {}) {
   const base = normalizeOrigin(origin);
   const requestOptions = { userAgent: "agent-payment-integrity/0.1", publicDns };
-  const x402Document = await fetchJson(new URL(x402Path, base), { requestImpl, requestOptions });
+  const x402Result = await fetchJsonResponse(new URL(x402Path, base), { requestImpl, requestOptions });
+  const x402Document = x402Result.document;
   let mppDocument = null;
+  let mppResponse = null;
   try {
-    mppDocument = await fetchJson(new URL(mppPath, base), { requestImpl, requestOptions });
+    const mppResult = await fetchJsonResponse(new URL(mppPath, base), { requestImpl, requestOptions });
+    mppDocument = mppResult.document;
+    mppResponse = mppResult.response;
   } catch (error) {
     if (!String(error?.message).includes("HTTP 404")) throw error;
   }
   const boundRequest = (url, options = {}) => requestImpl(url, { ...requestOptions, ...options });
+  const x402Link = x402Result.response.headers?.link || null;
+  const mppLink = mppResponse?.headers?.link || null;
+  if (x402Link && mppLink) {
+    const x402Manifest = selectPurchaseEvidenceLink(x402Link, base);
+    const mppManifest = selectPurchaseEvidenceLink(mppLink, base);
+    if (x402Manifest !== mppManifest) throw new Error("OpenAPI entry points advertise different purchase evidence manifests");
+  }
+  const entryPurchaseEvidenceLink = x402Link || mppLink;
+  const manifestCache = new Map();
+  const purchaseEvidenceLoader = async (url) => {
+    if (!manifestCache.has(url)) {
+      manifestCache.set(url, fetchJson(url, {
+        requestImpl,
+        requestOptions: { ...requestOptions, maxBytes: 512_000 },
+      }));
+    }
+    return manifestCache.get(url);
+  };
   const report = await auditIntegrity({
     origin: base,
     x402Document,
     mppDocument,
     requireBazaar,
+    requirePurchaseEvidence,
+    purchaseEvidenceLink: entryPurchaseEvidenceLink,
+    purchaseEvidenceLoader,
     route,
     method,
     requiredPaths,

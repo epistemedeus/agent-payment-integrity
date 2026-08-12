@@ -14,6 +14,13 @@ The deliberately narrow residual is one local CI run that:
 - compares live x402 and MPP public economics; and
 - compares live MPP economics with the seller's MPP OpenAPI offers.
 
+Candidate.6 adds one narrower pre-authorization residual: verify an exact
+seller-owned purchase-evidence relation and manifest, then cross-check its
+operation, schema digest, and complete required paths against current OpenAPI.
+It does not replace mandate engines, escrow, settlement, receipts, refunds,
+disputes, or post-execution evidence systems such as Paybond. It is designed to
+compose before those controls.
+
 The x402 doctor proposal goes further on x402 catalog digests and discovery-path
 diagnostics. AgentMint provides a hosted single-endpoint challenge and discovery
 check. `mppx` remains the authoritative MPP validator and dual-protocol client.

@@ -9,5 +9,10 @@ Caller-required response paths are retained only as bounded dotted field names.
 For POST operations, no request body is constructed, transmitted, or retained;
 the report records that the runtime challenge remains unverified.
 
+Purchase-evidence output retains only the public relation URI, same-origin
+manifest URL, manifest and response-schema digests, seller service version,
+declaration label, source surface, and public required paths. It does not retain
+the manifest's arbitrary evidence or boundary payloads.
+
 Use non-sensitive examples in required OpenAPI query parameters. A parameter
 whose name resembles a credential is rejected before any route probe.
