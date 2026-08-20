@@ -6,13 +6,16 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { toSarif } from "./integrity.mjs";
+import { githubRelativeArtifactUri, toSarif } from "./integrity.mjs";
 import {
   buildCliArgs,
+  collectSarifResults,
+  githubSafeSarif,
   inputErrorSarif,
   parseInputs,
   runAction,
   sanitizeEnv,
+  workflowAnnotation,
 } from "./action/run.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -69,17 +72,20 @@ test("action.yml pins nested actions to full commit SHAs", async () => {
   assert.match(source, /default: "false"/);
 });
 
-test("example seller workflow is credential-free and does not use npx or main", async () => {
+test("example seller workflow is credential-free and does not use npx, main, or a placeholder SHA", async () => {
   const source = await read("examples/seller-github-action.yml");
-  assert.match(source, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
   const uses = extractUses(source);
+  assert.equal(uses.length, 1);
+  assert.match(uses[0], /^epistemedeus\/agent-payment-integrity@(PIN_40_CHAR_COMMIT_SHA|[0-9a-f]{40})$/);
   assert.equal(uses.some((spec) => spec.includes("@main") || /@v\d/.test(spec)), false);
+  assert.equal(source.includes("REPLACE_WITH_COMMIT_SHA"), false);
   assert.equal(source.includes("npx"), false);
   assert.equal(source.includes("npm install"), false);
   assert.equal(source.includes("secrets."), false);
-  assert.match(source, /permissions:\n  contents: read\n  security-events: write/);
-  assert.match(source, /origin: https:\/\/seller\.example/);
-  assert.match(source, /upload-sarif: "true"/);
+  assert.match(source, /^name: seller-contract-integrity/m);
+  assert.match(source, /^on:/m);
+  assert.match(source, /permissions:\n  contents: read/);
+  assert.equal(source.includes("upload-sarif: \"true\""), false);
 });
 
 test("action sources contain no wallet, signing, scaffold, or publish commands", async () => {
@@ -193,6 +199,10 @@ test("harmless fixtures are unpaid, unsigned, and produce SARIF without raw head
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "seller_response_contract_absent");
   assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.7");
+  assert.equal(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri, "seller-contract/seller.example/read");
+  assert.equal(sarif.runs[0].results[0].locations[0].physicalLocation.region.startLine, 1);
+  assert.equal(/^https?:/i.test(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri), false);
+  assert.ok(sarif.runs[0].tool.driver.rules.some((rule) => rule.id === "seller_response_contract_absent"));
 });
 
 test("runAction fail-closes on invalid origin, writes SARIF, and does not spawn the CLI", async () => {
@@ -217,7 +227,12 @@ test("runAction fail-closes on invalid origin, writes SARIF, and does not spawn 
     assert.equal(sarif.runs[0].results[0].ruleId, "action_input_invalid");
     const outputs = await fs.readFile(outputFile, "utf8");
     assert.match(outputs, /ok=false/);
-    assert.match(await fs.readFile(summaryFile, "utf8"), /FAIL/);
+    const summary = await fs.readFile(summaryFile, "utf8");
+    assert.match(summary, /FAIL/);
+    assert.match(summary, /action_input_invalid/);
+    const sarifUri = sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri;
+    assert.equal(/^https?:/i.test(sarifUri), false);
+    assert.equal(sarif.runs[0].results[0].locations[0].physicalLocation.region.startLine, 1);
   });
 });
 
@@ -239,12 +254,14 @@ test("runAction fail-closes when the CLI exits nonzero and still exposes SARIF",
         await fs.writeFile(path.join(dir, "audit-result.sarif"), `${JSON.stringify(toSarif(failing), null, 2)}\n`);
         return { status: 1, stdout: "", stderr: "seller contract audit failed\n" };
       },
-    }), /seller contract audit failed/);
+    }), /seller_response_contract_absent/);
     const outputs = await fs.readFile(outputFile, "utf8");
     assert.match(outputs, /ok=false/);
     assert.match(outputs, /sarif-path=audit-result.sarif/);
     const sarif = JSON.parse(await fs.readFile(path.join(dir, "audit-result.sarif"), "utf8"));
     assert.equal(sarif.runs[0].results.length, 1);
+    assert.equal(/^https?:/i.test(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri), false);
+    assert.equal(sarif.runs[0].results[0].locations[0].physicalLocation.region.startLine, 1);
   });
 });
 
@@ -315,4 +332,89 @@ test("requestPinned remains GET-only and inputErrorSarif names this candidate", 
   const sarif = inputErrorSarif("origin is required");
   assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.7");
   assert.equal(sarif.runs[0].results[0].ruleId, "action_input_invalid");
+  assert.equal(sarif.runs[0].results[0].locations[0].physicalLocation.region.startLine, 1);
+  assert.equal(/^https?:/i.test(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri), false);
+});
+
+test("GitHub-safe SARIF rewrites https artifact URIs and fills missing locations", () => {
+  assert.equal(githubRelativeArtifactUri("https://post.seller.example", "/simulate"), "seller-contract/post.seller.example/simulate");
+  const rewritten = githubSafeSarif({
+    version: "2.1.0",
+    runs: [{
+      tool: { driver: { name: "agent-payment-integrity", version: "0.1.0-candidate.7", rules: [] } },
+      results: [{
+        ruleId: "seller_response_required_path_missing",
+        level: "error",
+        message: { text: "POST /simulate: seller_response_required_path_missing:data.attributes" },
+        locations: [{ physicalLocation: { artifactLocation: { uri: "https://post.seller.example/simulate" } } }],
+      }],
+    }],
+  });
+  const uri = rewritten.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri;
+  assert.equal(uri, "seller-contract/post.seller.example/simulate");
+  assert.equal(/^https?:/i.test(uri), false);
+  assert.equal(rewritten.runs[0].results[0].locations[0].physicalLocation.region.startLine, 1);
+  assert.ok(rewritten.runs[0].tool.driver.rules.some((rule) => rule.id === "seller_response_required_path_missing"));
+  assert.match(workflowAnnotation(rewritten.runs[0].results[0]), /^::error title=seller_response_required_path_missing::/);
+});
+
+test("runAction emits annotations and finding text when the CLI writes a failing SARIF", async () => {
+  const failing = JSON.parse(await read("action/fixtures/harmless-failing-report.json"));
+  await withTempDir(async (dir) => {
+    const outputFile = path.join(dir, "github-output");
+    const summaryFile = path.join(dir, "summary");
+    const stderr = [];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk, encoding, callback) => {
+      stderr.push(String(chunk));
+      if (typeof encoding === "function") encoding();
+      if (typeof callback === "function") callback();
+      return true;
+    };
+    try {
+      await assert.rejects(runAction({
+        INPUT_ORIGIN: "https://seller.example",
+        INPUT_ROUTE: "/read",
+        INPUT_MAX_ROUTES: "1",
+        GITHUB_WORKSPACE: dir,
+        GITHUB_OUTPUT: outputFile,
+        GITHUB_STEP_SUMMARY: summaryFile,
+      }, {
+        spawnImpl: async () => {
+          await fs.writeFile(path.join(dir, "audit-result.sarif"), `${JSON.stringify(toSarif(failing), null, 2)}\n`);
+          return { status: 1, stdout: "", stderr: "seller contract audit failed\n" };
+        },
+      }), /seller_response_contract_absent|seller contract audit failed/);
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+    const summary = await fs.readFile(summaryFile, "utf8");
+    assert.match(summary, /seller_response_contract_absent/);
+    assert.ok(stderr.some((line) => line.includes("::error title=seller_response_contract_absent::")));
+    const sarif = JSON.parse(await fs.readFile(path.join(dir, "audit-result.sarif"), "utf8"));
+    assert.equal(collectSarifResults(sarif)[0].ruleId, "seller_response_contract_absent");
+    assert.equal(/^https?:/i.test(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri), false);
+  });
+});
+
+test("runAction writes fail-closed SARIF when the real CLI throws without --out", async () => {
+  await withTempDir(async (dir) => {
+    const outputFile = path.join(dir, "github-output");
+    const summaryFile = path.join(dir, "summary");
+    await assert.rejects(runAction({
+      INPUT_ORIGIN: "https://seller.example",
+      INPUT_ROUTE: "/read",
+      INPUT_MAX_ROUTES: "1",
+      GITHUB_WORKSPACE: dir,
+      GITHUB_OUTPUT: outputFile,
+      GITHUB_STEP_SUMMARY: summaryFile,
+    }), /ENOTFOUND|not public|failed/i);
+    const sarif = JSON.parse(await fs.readFile(path.join(dir, "audit-result.sarif"), "utf8"));
+    assert.equal(sarif.runs[0].results[0].ruleId, "action_cli_failed");
+    assert.equal(sarif.runs[0].results[0].locations[0].physicalLocation.region.startLine, 1);
+    const outputs = await fs.readFile(outputFile, "utf8");
+    assert.match(outputs, /ok=false/);
+    assert.match(outputs, /sarif-path=audit-result.sarif/);
+    assert.match(await fs.readFile(summaryFile, "utf8"), /action_cli_failed/);
+  });
 });

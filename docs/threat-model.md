@@ -44,6 +44,10 @@ The reusable GitHub Action is the same CLI. It accepts only bounded origin and
 route inputs, runs `audit`, and never exposes `scaffold`. Nested actions are
 pinned by commit SHA. The audit step clears `GITHUB_TOKEN`, `GH_TOKEN`,
 `NPM_TOKEN`, and `NODE_AUTH_TOKEN` before `npm ci --ignore-scripts` and before
-the CLI. Optional SARIF upload uses the caller job's default GitHub token and
-requires `security-events: write`. The action has no secret inputs, wallet,
-signer, payment executor, write request, or production mutation.
+the CLI. Failures emit `::error::` annotations and always write a GitHub-safe
+SARIF file, including when the CLI throws before `--out`. Artifact URIs are
+relative `seller-contract/...` paths so code scanning does not reject an
+`https` scheme against a `file://` checkout. Optional SARIF upload uses the
+caller job's default GitHub token and requires `security-events: write`. The
+action has no secret inputs, wallet, signer, payment executor, write request,
+or production mutation.

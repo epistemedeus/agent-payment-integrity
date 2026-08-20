@@ -103,29 +103,36 @@ An unpublished `npx` package still requires Node, lockfile, and SARIF-upload YAM
 in the seller repository. The reusable composite action is the GitHub-native pin:
 
 ```yaml
+name: seller-contract-integrity
+on:
+  pull_request:
+  push:
+    branches: [main]
 permissions:
   contents: read
-  security-events: write
 jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: epistemedeus/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA
+      - uses: epistemedeus/agent-payment-integrity@PIN_40_CHAR_COMMIT_SHA
         with:
-          origin: https://seller.example
+          origin: https://YOUR_PUBLIC_ORIGIN.example
           route: /read
           max-routes: "1"
-          upload-sarif: "true"
 ```
 
-Pin the full commit SHA from `grok/github-action-20260820`. Do not use `@main`.
+Pin a full 40-character commit SHA from `grok/cleanroom-action-consumer-20260820`
+or a later verified commit on that line. Do not use `@main`, a floating `@vN`
+tag, or `REPLACE_WITH_COMMIT_SHA`. GitHub cannot resolve a placeholder ref.
 The action accepts no secrets, installs this CLI with `npm ci --ignore-scripts`,
-runs only `audit`, writes SARIF, and optionally uploads it with the default
-`GITHUB_TOKEN`. It has no wallet, signer, payment, or production mutation.
-`upload-sarif` defaults to false; set it true only when the job grants
-`security-events: write`. Copy `examples/seller-github-action.yml` for the
-full workflow.
+runs only `audit`, writes GitHub-safe SARIF, and prints `::error::` annotations
+for each finding. It has no wallet, signer, payment, or production mutation.
+`upload-sarif` defaults to false. Set it true only when the job also grants
+`security-events: write` and you want a code scanning upload. Copy
+`examples/seller-github-action.yml` for the full workflow, including optional
+upload. Replace the origin with a credential-free public HTTPS seller on port
+443. `https://seller.example` does not resolve.
 
 ## CI example
 

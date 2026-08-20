@@ -1,8 +1,10 @@
-# Copy into a seller repository. Pin the commit SHA from
-# grok/github-action-20260820. Do not use @main, a floating tag, or npm.
+# Copy into a seller repository. Pin a 40-character commit SHA from
+# grok/cleanroom-action-consumer-20260820. Do not use @main, a floating
+# tag, npm, or an unresolved placeholder ref.
 #
-# permissions.security-events is required only when upload-sarif is true.
-# The action accepts no secrets, wallets, or payment credentials.
+# upload-sarif defaults to false. security-events is required only when
+# you set upload-sarif true. The action accepts no secrets, wallets, or
+# payment credentials. Replace origin with a public HTTPS seller.
 
 name: seller-contract-integrity
 
@@ -13,18 +15,16 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: epistemedeus/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA
+      - uses: epistemedeus/agent-payment-integrity@PIN_40_CHAR_COMMIT_SHA
         with:
-          origin: https://seller.example
+          origin: https://YOUR_PUBLIC_ORIGIN.example
           route: /read
           max-routes: "1"
           format: sarif
           out: audit-result.sarif
-          upload-sarif: "true"

@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { TOOL_VERSION, normalizeOrigin } from "../integrity.mjs";
+import { TOOL_VERSION, githubRelativeArtifactUri, normalizeOrigin } from "../integrity.mjs";
 
 const ACTION_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(ACTION_DIR, "..");
@@ -108,22 +108,112 @@ export function sanitizeEnv(env = process.env) {
   return next;
 }
 
-export function inputErrorSarif(message) {
+function sarifRegion() {
+  return { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 };
+}
+
+function sarifRule(id) {
   return {
+    id,
+    name: id,
+    shortDescription: { text: id.replaceAll("_", " ") },
+    fullDescription: { text: id.replaceAll("_", " ") },
+    help: { text: id },
+    defaultConfiguration: { level: "error" },
+  };
+}
+
+export function workflowEscape(value, property = false) {
+  let text = String(value ?? "").replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+  if (property) text = text.replace(/:/g, "%3A").replace(/,/g, "%2C");
+  return text;
+}
+
+export function workflowAnnotation(result) {
+  const title = result?.ruleId || "agent-payment-integrity";
+  const message = result?.message?.text || title;
+  return `::error title=${workflowEscape(title, true)}::${workflowEscape(message)}`;
+}
+
+export function collectSarifResults(payload) {
+  const runs = Array.isArray(payload?.runs) ? payload.runs : [];
+  return runs.flatMap((run) => (Array.isArray(run?.results) ? run.results : []));
+}
+
+export function githubSafeSarif(payload, { origin = "", route = "" } = {}) {
+  const clone = payload && typeof payload === "object" ? structuredClone(payload) : {
+    version: "2.1.0",
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    runs: [],
+  };
+  if (!Array.isArray(clone.runs) || clone.runs.length === 0) {
+    clone.version = "2.1.0";
+    clone.$schema = clone.$schema || "https://json.schemastore.org/sarif-2.1.0.json";
+    clone.runs = [{
+      tool: { driver: { name: "agent-payment-integrity", version: TOOL_VERSION, rules: [] } },
+      results: [],
+    }];
+  }
+  for (const run of clone.runs) {
+    const results = Array.isArray(run.results) ? run.results : (run.results = []);
+    for (const result of results) {
+      if (!Array.isArray(result.locations) || result.locations.length === 0) {
+        result.locations = [{
+          physicalLocation: {
+            artifactLocation: { uri: githubRelativeArtifactUri(origin || "https://invalid.example", route) },
+            region: sarifRegion(),
+          },
+        }];
+      }
+      for (const location of result.locations) {
+        const physical = location.physicalLocation || (location.physicalLocation = {});
+        const artifact = physical.artifactLocation || (physical.artifactLocation = {});
+        if (typeof artifact.uri === "string" && /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(artifact.uri)) {
+          try {
+            const url = new URL(artifact.uri);
+            artifact.uri = githubRelativeArtifactUri(url.origin, url.pathname);
+          } catch {
+            artifact.uri = githubRelativeArtifactUri(origin || "https://invalid.example", route);
+          }
+        }
+        if (!physical.region || physical.region.startLine == null) physical.region = sarifRegion();
+      }
+    }
+    const driver = run.tool?.driver || (run.tool = { driver: { name: "agent-payment-integrity", version: TOOL_VERSION } }).driver;
+    driver.name = driver.name || "agent-payment-integrity";
+    driver.version = driver.version || TOOL_VERSION;
+    const ruleIds = results.map((result) => result.ruleId).filter(Boolean);
+    if (!Array.isArray(driver.rules) || driver.rules.length === 0) driver.rules = ruleIds.map(sarifRule);
+  }
+  return clone;
+}
+
+export function inputErrorSarif(message, ruleId = "action_input_invalid", origin = "", route = "") {
+  const id = String(ruleId || "action_input_invalid");
+  return githubSafeSarif({
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [{
-      tool: { driver: { name: "agent-payment-integrity", version: TOOL_VERSION, rules: [] } },
+      tool: {
+        driver: {
+          name: "agent-payment-integrity",
+          version: TOOL_VERSION,
+          rules: [sarifRule(id)],
+        },
+      },
       results: [{
-        ruleId: "action_input_invalid",
+        ruleId: id,
         level: "error",
         message: { text: String(message) },
       }],
     }],
-  };
+  }, { origin, route });
 }
 
-export function summaryText({ inputs, ok, findingCount }) {
+export function summaryText({ inputs, ok, findingCount, findings = [] }) {
+  const findingLines = findings.length
+    ? ["", "### Findings", "", ...findings.map((item) => `- \`${item.ruleId || "finding"}\`: ${item.message?.text || ""}`)]
+    : [];
   return [
     "## agent-payment-integrity",
     "",
@@ -132,15 +222,17 @@ export function summaryText({ inputs, ok, findingCount }) {
     `- route: ${inputs.route || "(declared paid routes)"}`,
     `- result: ${ok ? "PASS" : "FAIL"}`,
     `- findings: ${findingCount}`,
+    ...findingLines,
     "",
     "No credentials used. No payment signed. No payment sent. No seller POST transmitted. No production mutation.",
     "",
   ].join("\n");
 }
 
-function countSarifFindings(payload) {
-  const runs = Array.isArray(payload?.runs) ? payload.runs : [];
-  return runs.reduce((total, run) => total + (Array.isArray(run?.results) ? run.results.length : 0), 0);
+function emitFindingAnnotations(findings) {
+  for (const result of findings) {
+    process.stderr.write(`${workflowAnnotation(result)}\n`);
+  }
 }
 
 async function writeGithubFile(file, body, { appendFile }) {
@@ -200,9 +292,12 @@ export async function runAction(env = process.env, deps = {}) {
       out = "audit-result.sarif";
     }
     const format = String(env.INPUT_FORMAT || "sarif").trim().toLowerCase() || "sarif";
+    const sarif = inputErrorSarif(error.message, "action_input_invalid");
+    const findings = collectSarifResults(sarif);
     if (format === "sarif") {
-      await writeReportFile(cwd, out, `${JSON.stringify(inputErrorSarif(error.message), null, 2)}\n`, writeFile, mkdir);
+      await writeReportFile(cwd, out, `${JSON.stringify(sarif, null, 2)}\n`, writeFile, mkdir);
     }
+    emitFindingAnnotations(findings);
     await writeOutputs(env, {
       "sarif-path": format === "sarif" ? out : "",
       ok: "false",
@@ -211,7 +306,8 @@ export async function runAction(env = process.env, deps = {}) {
     await writeGithubFile(env.GITHUB_STEP_SUMMARY, summaryText({
       inputs: { origin: String(env.INPUT_ORIGIN || "").trim() || "(invalid)", method: "GET", route: null },
       ok: false,
-      findingCount: 1,
+      findingCount: findings.length || 1,
+      findings,
     }), io);
     throw error;
   }
@@ -228,25 +324,43 @@ export async function runAction(env = process.env, deps = {}) {
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.stdout) process.stdout.write(result.stdout);
 
-  let findingCount = 0;
+  let findings = [];
   if (inputs.format === "sarif") {
+    let payload = null;
     try {
-      const raw = await fs.readFile(path.resolve(cwd, inputs.out), "utf8");
-      findingCount = countSarifFindings(JSON.parse(raw));
+      payload = JSON.parse(await fs.readFile(path.resolve(cwd, inputs.out), "utf8"));
     } catch {
-      findingCount = result.status === 0 ? 0 : 1;
+      payload = null;
     }
+    if (!payload) {
+      payload = inputErrorSarif(
+        result.stderr.trim() || "seller contract audit failed",
+        "action_cli_failed",
+        inputs.origin,
+        inputs.route || "",
+      );
+    }
+    payload = githubSafeSarif(payload, { origin: inputs.origin, route: inputs.route || "" });
+    await writeReportFile(cwd, inputs.out, `${JSON.stringify(payload, null, 2)}\n`, writeFile, mkdir);
+    findings = collectSarifResults(payload);
   }
 
   const ok = result.status === 0;
+  if (!ok) emitFindingAnnotations(findings);
   await writeOutputs(env, {
     "sarif-path": inputs.out,
     ok: ok ? "true" : "false",
     origin: inputs.origin,
   }, io);
-  await writeGithubFile(env.GITHUB_STEP_SUMMARY, summaryText({ inputs, ok, findingCount }), io);
+  await writeGithubFile(env.GITHUB_STEP_SUMMARY, summaryText({
+    inputs,
+    ok,
+    findingCount: findings.length || (ok ? 0 : 1),
+    findings,
+  }), io);
   if (!ok) {
-    const error = new Error(result.stderr.trim() || "seller contract audit failed");
+    const detail = findings[0]?.message?.text || result.stderr.trim() || "seller contract audit failed";
+    const error = new Error(detail);
     error.exitCode = result.status || 1;
     throw error;
   }

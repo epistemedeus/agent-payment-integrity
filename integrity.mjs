@@ -1005,18 +1005,61 @@ export function createPurchaseEvidenceScaffold({
   });
 }
 
+export function githubRelativeArtifactUri(origin, route = "") {
+  let host = "invalid-origin";
+  let pathName = String(route || "");
+  try {
+    const url = new URL(origin);
+    host = url.hostname || host;
+    if (!pathName || pathName === "/") pathName = url.pathname || "";
+  } catch {
+    const raw = String(origin || "").replace(/^https?:\/\//i, "");
+    host = raw.split("/")[0] || host;
+  }
+  const suffix = pathName.startsWith("/") ? pathName.slice(1) : pathName;
+  return ["seller-contract", host, suffix].filter(Boolean).join("/");
+}
+
+function sarifRegion() {
+  return { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 };
+}
+
+function sarifRules(ruleIds) {
+  return [...new Set(ruleIds.filter(Boolean))].map((id) => ({
+    id,
+    name: id,
+    shortDescription: { text: id.replaceAll("_", " ") },
+    fullDescription: { text: id.replaceAll("_", " ") },
+    help: {
+      text: "Credential-free unpaid seller contract finding. The origin and route are in the result message. The artifact URI is a GitHub-safe relative path so code scanning does not reject an https scheme against a file checkout.",
+    },
+    defaultConfiguration: { level: "error" },
+  }));
+}
+
 export function toSarif(report) {
   const results = report.routes.flatMap((route) => route.findings.map((finding) => ({
     ruleId: finding.split(":", 1)[0],
     level: "error",
     message: { text: `${route.method || "GET"} ${route.route}: ${finding}` },
-    locations: [{ physicalLocation: { artifactLocation: { uri: report.origin + route.route } } }],
+    locations: [{
+      physicalLocation: {
+        artifactLocation: { uri: githubRelativeArtifactUri(report.origin, route.route) },
+        region: sarifRegion(),
+      },
+    }],
   })));
   return {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [{
-      tool: { driver: { name: "agent-payment-integrity", version: TOOL_VERSION, rules: [] } },
+      tool: {
+        driver: {
+          name: "agent-payment-integrity",
+          version: TOOL_VERSION,
+          rules: sarifRules(results.map((result) => result.ruleId)),
+        },
+      },
       results,
     }],
   };
