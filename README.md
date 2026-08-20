@@ -119,12 +119,14 @@ jobs:
           upload-sarif: "true"
 ```
 
-Pin the full commit SHA from `grok/github-action-20260820`. Do not use `@main`.
-The action accepts no secrets, installs this CLI with `npm ci --ignore-scripts`,
-runs only `audit`, writes SARIF, and optionally uploads it with the default
-`GITHUB_TOKEN`. It has no wallet, signer, payment, or production mutation.
-`upload-sarif` defaults to false; set it true only when the job grants
-`security-events: write`. Copy `examples/seller-github-action.yml` for the
+Pin the full commit SHA of the action commit you reviewed. Do not use `@main`.
+The action accepts no secrets, installs this CLI with `npm ci --ignore-scripts`
+inside the action directory, runs only `audit`, writes SARIF, and optionally
+uploads the validated `sarif-path` output with the default `GITHUB_TOKEN`.
+It has no wallet, signer, payment, or production mutation. `upload-sarif`
+defaults to false; set it true only when the job grants `security-events: write`.
+Fork `pull_request` jobs skip upload. Do not switch the example to
+`pull_request_target`. Copy `examples/seller-github-action.yml` for the
 full workflow.
 
 ## CI example

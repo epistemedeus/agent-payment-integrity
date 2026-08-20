@@ -8,5 +8,7 @@ or private response bodies.
 Run `npm test`, `npm audit --omit=dev`, and `npm pack --dry-run` before a pull
 request. New failure classes require a credential-free fixture. Action contract
 tests live in `action.test.mjs` and must keep nested `uses:` lines pinned to
-full commit SHAs, with no secret inputs. Do not add `.github/workflows` files
-from an OAuth app token that lacks `workflow` scope.
+full commit SHAs, with no secret or `token:` inputs. SARIF upload must consume
+`steps.audit.outputs.sarif-path`, not the raw `out` input, and must skip fork
+`pull_request` jobs. Do not add `.github/workflows` files from an OAuth app
+token that lacks `workflow` scope.

@@ -71,6 +71,8 @@ runs:
         GH_TOKEN: ""
         NPM_TOKEN: ""
         NODE_AUTH_TOKEN: ""
+        NODE_OPTIONS: ""
+        NPM_CONFIG_IGNORE_SCRIPTS: "true"
       run: npm ci --ignore-scripts --omit=dev
 
     - name: Audit seller contracts
@@ -82,6 +84,7 @@ runs:
         GH_TOKEN: ""
         NPM_TOKEN: ""
         NODE_AUTH_TOKEN: ""
+        NODE_OPTIONS: ""
         INPUT_ORIGIN: ${{ inputs.origin }}
         INPUT_ROUTE: ${{ inputs.route }}
         INPUT_METHOD: ${{ inputs.method }}
@@ -95,9 +98,9 @@ runs:
       run: node "$GITHUB_ACTION_PATH/action/run.mjs"
 
     - name: Upload SARIF
-      if: ${{ always() && inputs.upload-sarif == 'true' && inputs.format == 'sarif' }}
+      if: ${{ always() && inputs.upload-sarif == 'true' && inputs.format == 'sarif' && steps.audit.outputs.sarif-path != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
       uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
       with:
-        sarif_file: ${{ inputs.out }}
+        sarif_file: ${{ steps.audit.outputs.sarif-path }}
         category: agent-payment-integrity
         wait-for-processing: "false"

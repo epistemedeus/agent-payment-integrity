@@ -10,7 +10,8 @@ const REPO_ROOT = path.resolve(ACTION_DIR, "..");
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
 const REQUIRED_PATH = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){0,7}$/;
 const SAFE_OUT = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
-const STRIP_ENV = /^(GITHUB_TOKEN|GH_TOKEN|NPM_TOKEN|NODE_AUTH_TOKEN|AWS_|PAYMENT|WALLET|PRIVATE_KEY|SECRET)/i;
+const STRIP_EXACT = /^(GITHUB_TOKEN|GH_TOKEN|NPM_TOKEN|NODE_AUTH_TOKEN|NODE_OPTIONS|NODE_PATH|NODE_REPL_EXTERNAL_MODULE|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|ACTIONS_ID_TOKEN_REQUEST_URL|GITHUB_ENV|GITHUB_PATH|GITHUB_OUTPUT|GITHUB_STEP_SUMMARY)$/i;
+const STRIP_PREFIX = /^(AWS_|PAYMENT|WALLET|PRIVATE_KEY|SECRET)/i;
 
 export function parseBoolean(name, value, defaultValue) {
   if (value === undefined || value === null || value === "") return defaultValue;
@@ -23,6 +24,53 @@ export function parseOut(value, fallback = "audit-result.sarif") {
   const out = String(value ?? "").trim() || fallback;
   if (path.isAbsolute(out) || out.split(/[\\/]/).includes("..") || !SAFE_OUT.test(out)) {
     throw new Error("out must be a workspace-relative file without parent segments");
+  }
+  return out;
+}
+
+function escapesWorkspace(workspace, candidate) {
+  const relative = path.relative(workspace, candidate);
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+}
+
+export async function assertWorkspaceOut(cwd, out, deps = {}) {
+  const lstat = deps.lstat || fs.lstat;
+  const mkdir = deps.mkdir || fs.mkdir;
+  const realpath = deps.realpath || fs.realpath;
+  const workspace = await realpath(cwd);
+  const target = path.resolve(workspace, out);
+  if (escapesWorkspace(workspace, target) || target === workspace) {
+    throw new Error("out must be a workspace-relative file without parent segments");
+  }
+
+  let cursor = path.dirname(target);
+  while (cursor.startsWith(`${workspace}${path.sep}`) || cursor === workspace) {
+    try {
+      const st = await lstat(cursor);
+      if (st.isSymbolicLink()) {
+        const real = await realpath(cursor);
+        if (escapesWorkspace(workspace, real)) {
+          throw new Error("out must stay inside the workspace");
+        }
+      }
+      break;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    if (cursor === workspace) break;
+    cursor = path.dirname(cursor);
+  }
+
+  await mkdir(path.dirname(target), { recursive: true });
+  const realDir = await realpath(path.dirname(target));
+  if (escapesWorkspace(workspace, realDir)) {
+    throw new Error("out must stay inside the workspace");
+  }
+  try {
+    const st = await lstat(target);
+    if (st.isSymbolicLink()) throw new Error("out must not be a symlink");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
   }
   return out;
 }
@@ -103,19 +151,19 @@ export function buildCliArgs(inputs) {
 export function sanitizeEnv(env = process.env) {
   const next = { ...env };
   for (const key of Object.keys(next)) {
-    if (STRIP_ENV.test(key)) delete next[key];
+    if (STRIP_EXACT.test(key) || STRIP_PREFIX.test(key)) delete next[key];
   }
   return next;
 }
 
-export function inputErrorSarif(message) {
+export function inputErrorSarif(message, ruleId = "action_input_invalid") {
   return {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [{
       tool: { driver: { name: "agent-payment-integrity", version: TOOL_VERSION, rules: [] } },
       results: [{
-        ruleId: "action_input_invalid",
+        ruleId,
         level: "error",
         message: { text: String(message) },
       }],
@@ -181,17 +229,43 @@ async function writeReportFile(cwd, out, body, writeFile, mkdir) {
   await writeFile(target, body);
 }
 
+async function failClosed(env, deps, io, { out, format, error, ruleId = "action_input_invalid" }) {
+  const writeFile = deps.writeFile || fs.writeFile;
+  const mkdir = deps.mkdir || fs.mkdir;
+  const cwd = env.GITHUB_WORKSPACE || process.cwd();
+  if (format === "sarif") {
+    try {
+      await assertWorkspaceOut(cwd, out, deps);
+      await writeReportFile(cwd, out, `${JSON.stringify(inputErrorSarif(error.message, ruleId), null, 2)}\n`, writeFile, mkdir);
+    } catch {
+      out = "";
+    }
+  } else {
+    out = "";
+  }
+  await writeOutputs(env, {
+    "sarif-path": format === "sarif" ? out : "",
+    ok: "false",
+    origin: "",
+  }, io);
+  await writeGithubFile(env.GITHUB_STEP_SUMMARY, summaryText({
+    inputs: { origin: "(invalid)", method: "GET", route: null },
+    ok: false,
+    findingCount: 1,
+  }), io);
+}
+
 export async function runAction(env = process.env, deps = {}) {
   const writeFile = deps.writeFile || fs.writeFile;
   const mkdir = deps.mkdir || fs.mkdir;
-  const appendFile = deps.appendFile || fs.appendFile;
   const spawnImpl = deps.spawnImpl || defaultSpawn;
   const cwd = env.GITHUB_WORKSPACE || process.cwd();
   const actionRoot = env.GITHUB_ACTION_PATH || REPO_ROOT;
-  const io = { appendFile };
+  const io = { appendFile: deps.appendFile || fs.appendFile };
   let inputs;
   try {
     inputs = parseInputs(env);
+    await assertWorkspaceOut(cwd, inputs.out, deps);
   } catch (error) {
     let out;
     try {
@@ -200,19 +274,7 @@ export async function runAction(env = process.env, deps = {}) {
       out = "audit-result.sarif";
     }
     const format = String(env.INPUT_FORMAT || "sarif").trim().toLowerCase() || "sarif";
-    if (format === "sarif") {
-      await writeReportFile(cwd, out, `${JSON.stringify(inputErrorSarif(error.message), null, 2)}\n`, writeFile, mkdir);
-    }
-    await writeOutputs(env, {
-      "sarif-path": format === "sarif" ? out : "",
-      ok: "false",
-      origin: "",
-    }, io);
-    await writeGithubFile(env.GITHUB_STEP_SUMMARY, summaryText({
-      inputs: { origin: String(env.INPUT_ORIGIN || "").trim() || "(invalid)", method: "GET", route: null },
-      ok: false,
-      findingCount: 1,
-    }), io);
+    await failClosed(env, deps, io, { out, format, error });
     throw error;
   }
 
@@ -228,17 +290,25 @@ export async function runAction(env = process.env, deps = {}) {
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.stdout) process.stdout.write(result.stdout);
 
+  let ok = result.status === 0;
   let findingCount = 0;
   if (inputs.format === "sarif") {
     try {
       const raw = await fs.readFile(path.resolve(cwd, inputs.out), "utf8");
       findingCount = countSarifFindings(JSON.parse(raw));
     } catch {
-      findingCount = result.status === 0 ? 0 : 1;
+      ok = false;
+      findingCount = 1;
+      await writeReportFile(
+        cwd,
+        inputs.out,
+        `${JSON.stringify(inputErrorSarif("seller contract audit failed", "action_audit_failed"), null, 2)}\n`,
+        writeFile,
+        mkdir,
+      );
     }
   }
 
-  const ok = result.status === 0;
   await writeOutputs(env, {
     "sarif-path": inputs.out,
     ok: ok ? "true" : "false",

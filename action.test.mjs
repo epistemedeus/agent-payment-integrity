@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { toSarif } from "./integrity.mjs";
 import {
+  assertWorkspaceOut,
   buildCliArgs,
   inputErrorSarif,
   parseInputs,
@@ -65,7 +66,11 @@ test("action.yml pins nested actions to full commit SHAs", async () => {
   }
   assert.match(source, /node-version: "22"/);
   assert.match(source, /wait-for-processing: "false"/);
-  assert.ok(source.includes("if: ${{ always() && inputs.upload-sarif == 'true' && inputs.format == 'sarif' }}"));
+  assert.ok(source.includes("if: ${{ always() && inputs.upload-sarif == 'true' && inputs.format == 'sarif' && steps.audit.outputs.sarif-path != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}"));
+  assert.ok(source.includes("sarif_file: ${{ steps.audit.outputs.sarif-path }}"));
+  assert.equal(source.includes("sarif_file: ${{ inputs.out }}"), false);
+  assert.ok(source.includes("NODE_OPTIONS: \"\""));
+  assert.ok(source.includes("working-directory: ${{ github.action_path }}"));
   assert.match(source, /default: "false"/);
 });
 
@@ -170,8 +175,12 @@ test("sanitizeEnv strips tokens and wallet-shaped names before spawning the CLI"
   assert.equal("WALLET_KEY" in cleaned, false);
   assert.equal("PRIVATE_KEY" in cleaned, false);
   assert.equal("PAYMENT_HEADER" in cleaned, false);
+  assert.equal("NODE_OPTIONS" in sanitizeEnv({ NODE_OPTIONS: "--require ./evil.js" }), false);
+  assert.equal("GITHUB_ENV" in sanitizeEnv({ GITHUB_ENV: "/tmp/env" }), false);
+  assert.equal("GITHUB_OUTPUT" in cleaned, false);
+  assert.equal("ACTIONS_RUNTIME_TOKEN" in sanitizeEnv({ ACTIONS_RUNTIME_TOKEN: "gha_secret" }), false);
   assert.equal(cleaned.PATH, "/usr/bin");
-  assert.equal(cleaned.GITHUB_OUTPUT, "/tmp/out");
+  assert.equal(cleaned.GITHUB_WORKSPACE, "/tmp/ws");
 });
 
 test("harmless fixtures are unpaid, unsigned, and produce SARIF without raw headers", async () => {
@@ -217,7 +226,10 @@ test("runAction fail-closes on invalid origin, writes SARIF, and does not spawn 
     assert.equal(sarif.runs[0].results[0].ruleId, "action_input_invalid");
     const outputs = await fs.readFile(outputFile, "utf8");
     assert.match(outputs, /ok=false/);
-    assert.match(await fs.readFile(summaryFile, "utf8"), /FAIL/);
+    const summary = await fs.readFile(summaryFile, "utf8");
+    assert.match(summary, /FAIL/);
+    assert.match(summary, /origin: \(invalid\)/);
+    assert.equal(summary.includes("user:token"), false);
   });
 });
 
@@ -315,4 +327,76 @@ test("requestPinned remains GET-only and inputErrorSarif names this candidate", 
   const sarif = inputErrorSarif("origin is required");
   assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.7");
   assert.equal(sarif.runs[0].results[0].ruleId, "action_input_invalid");
+});
+
+test("runAction creates parent directories for workspace-relative out", async () => {
+  const failing = JSON.parse(await read("action/fixtures/harmless-failing-report.json"));
+  await withTempDir(async (dir) => {
+    let sawDir = false;
+    await assert.rejects(runAction({
+      INPUT_ORIGIN: "https://seller.example",
+      INPUT_ROUTE: "/read",
+      INPUT_OUT: "reports/nested/audit.sarif",
+      GITHUB_WORKSPACE: dir,
+      GITHUB_OUTPUT: path.join(dir, "github-output"),
+    }, {
+      spawnImpl: async ({ args, env }) => {
+        const out = args[args.indexOf("--out") + 1];
+        assert.equal(out, "reports/nested/audit.sarif");
+        assert.equal("NODE_OPTIONS" in env, false);
+        assert.equal("GITHUB_ENV" in env, false);
+        await fs.stat(path.join(dir, "reports/nested"));
+        sawDir = true;
+        await fs.writeFile(
+          path.join(dir, out),
+          `${JSON.stringify(toSarif(failing), null, 2)}\n`,
+        );
+        return { status: 1, stdout: "", stderr: "seller contract audit failed\n" };
+      },
+    }), /seller contract audit failed/);
+    assert.equal(sawDir, true);
+  });
+});
+
+test("runAction writes fail-closed SARIF when the CLI exits without creating out", async () => {
+  await withTempDir(async (dir) => {
+    const outputFile = path.join(dir, "github-output");
+    await assert.rejects(runAction({
+      INPUT_ORIGIN: "https://seller.example",
+      INPUT_ROUTE: "/read",
+      GITHUB_WORKSPACE: dir,
+      GITHUB_OUTPUT: outputFile,
+    }, {
+      spawnImpl: async () => ({ status: 1, stdout: "", stderr: "hostname did not resolve\n" }),
+    }), /hostname did not resolve/);
+    const sarif = JSON.parse(await fs.readFile(path.join(dir, "audit-result.sarif"), "utf8"));
+    assert.equal(sarif.runs[0].results[0].ruleId, "action_audit_failed");
+    assert.match(await fs.readFile(outputFile, "utf8"), /sarif-path=audit-result.sarif/);
+  });
+});
+
+test("assertWorkspaceOut refuses symlinks and parent escapes", async () => {
+  await withTempDir(async (dir) => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "integrity-escape-"));
+    try {
+      await fs.symlink(path.join(outside, "pwn.sarif"), path.join(dir, "link.sarif"));
+      await assert.rejects(assertWorkspaceOut(dir, "link.sarif"), /symlink/);
+      const reports = path.join(dir, "reports");
+      await fs.symlink(outside, reports);
+      await assert.rejects(assertWorkspaceOut(dir, "reports/audit.sarif"), /workspace/);
+      await assertWorkspaceOut(dir, "ok/audit.sarif");
+      const st = await fs.stat(path.join(dir, "ok"));
+      assert.equal(st.isDirectory(), true);
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("example seller workflow warns against pull_request_target and documents fork upload skip", async () => {
+  const source = await read("examples/seller-github-action.yml");
+  assert.match(source, /pull_request_target/);
+  assert.match(source, /Fork pull_request/);
+  assert.equal(source.includes("pull_request_target:"), false);
+  assert.match(source, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
 });

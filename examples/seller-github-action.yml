@@ -1,8 +1,11 @@
-# Copy into a seller repository. Pin the commit SHA from
-# grok/github-action-20260820. Do not use @main, a floating tag, or npm.
+# Copy into a seller repository. Pin the full commit SHA. Do not use @main,
+# a floating tag, npm, or pull_request_target.
 #
 # permissions.security-events is required only when upload-sarif is true.
-# The action accepts no secrets, wallets, or payment credentials.
+# Fork pull_request jobs do not receive security-events write; the action
+# skips SARIF upload for those jobs so a passing audit is not turned into
+# a permission failure. The action accepts no secrets, wallets, or payment
+# credentials.
 
 name: seller-contract-integrity
 
