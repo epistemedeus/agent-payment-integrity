@@ -35,7 +35,7 @@
   },
   "homepage": "https://github.com/epistemedeus/agent-payment-integrity#readme",
   "scripts": {
-    "test": "node --test integrity.test.mjs",
+    "test": "node --test integrity.test.mjs action.test.mjs",
     "audit:self": "node cli.mjs audit --origin https://agents.samedaydesk.com",
     "prepack": "npm test"
   },

@@ -6,4 +6,7 @@ or payment. Do not attach payment headers, wallet material, API keys, cookies,
 or private response bodies.
 
 Run `npm test`, `npm audit --omit=dev`, and `npm pack --dry-run` before a pull
-request. New failure classes require a credential-free fixture.
+request. New failure classes require a credential-free fixture. Action contract
+tests live in `action.test.mjs` and must keep nested `uses:` lines pinned to
+full commit SHAs, with no secret inputs. Do not add `.github/workflows` files
+from an OAuth app token that lacks `workflow` scope.

@@ -4,7 +4,8 @@ This package is not a replacement for the proposed x402 Foundation
 `x402-doctor`, Coinbase's validation endpoint, AgentCash discovery checks,
 `mppx validate`, or AgentMint Verify.
 
-The deliberately narrow residual is one local CI run that:
+The deliberately narrow residual is one local CI run, or the same CLI invoked
+from the reusable GitHub Action, that:
 
 - enumerates paid GET operations from seller-owned OpenAPI documents;
 - constructs the complete credential-free crawler request;

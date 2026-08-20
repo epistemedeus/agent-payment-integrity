@@ -97,7 +97,39 @@ can add `--public-dns`. That explicit mode resolves through DNS-over-HTTPS and
 still pins a public result into the TLS request. The default honors the system
 resolver and fails closed on any non-public answer.
 
+## External seller GitHub Action
+
+An unpublished `npx` package still requires Node, lockfile, and SARIF-upload YAML
+in the seller repository. The reusable composite action is the GitHub-native pin:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: epistemedeus/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA
+        with:
+          origin: https://seller.example
+          route: /read
+          max-routes: "1"
+          upload-sarif: "true"
+```
+
+Pin the full commit SHA from `grok/github-action-20260820`. Do not use `@main`.
+The action accepts no secrets, installs this CLI with `npm ci --ignore-scripts`,
+runs only `audit`, writes SARIF, and optionally uploads it with the default
+`GITHUB_TOKEN`. It has no wallet, signer, payment, or production mutation.
+`upload-sarif` defaults to false; set it true only when the job grants
+`security-events: write`. Copy `examples/seller-github-action.yml` for the
+full workflow.
+
 ## CI example
+
+In this repository, or after a local clone:
 
 ```yaml
 - run: npm ci --ignore-scripts
