@@ -43,3 +43,11 @@ The optional `--public-dns` mode is an explicit operator choice for CI
 sandboxes whose system resolver maps public hosts into reserved synthetic
 addresses. It resolves through DNS-over-HTTPS and pins the public result. Do not
 use it when auditing intentional split-horizon or private DNS names.
+
+The reusable GitHub Action is the same CLI. It accepts only bounded origin and
+route inputs, runs `audit`, and never exposes `scaffold`. Nested actions are
+pinned by commit SHA. The audit step clears `GITHUB_TOKEN`, `GH_TOKEN`,
+`NPM_TOKEN`, and `NODE_AUTH_TOKEN` before `npm ci --ignore-scripts` and before
+the CLI. Optional SARIF upload uses the caller job's default GitHub token and
+requires `security-events: write`. The action has no secret inputs, wallet,
+signer, payment executor, write request, or production mutation.
