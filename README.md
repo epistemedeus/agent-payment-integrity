@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: epistemedeus/agent-payment-integrity@PIN_40_CHAR_COMMIT_SHA
+      - uses: epistemedeus/agent-payment-integrity@55b94ce8da37810b886ac69f8e45b5cb1c8e3ab3
         with:
           origin: https://YOUR_PUBLIC_ORIGIN.example
           route: /read
