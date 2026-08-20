@@ -35,6 +35,10 @@ An unpaid challenge proves only the seller's advertised contract at one point
 in time. It does not prove paid delivery, settlement, catalog indexing, seller
 identity, or future availability.
 
+The installable `agent-payment-integrity` skill teaches this unpaid CI
+boundary. It must not be read as a payment instruction, wallet workflow, or
+runtime proof that a seller declaration was delivered.
+
 The optional `--public-dns` mode is an explicit operator choice for CI
 sandboxes whose system resolver maps public hosts into reserved synthetic
 addresses. It resolves through DNS-over-HTTPS and pins the public result. Do not
