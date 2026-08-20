@@ -74,6 +74,24 @@ from the same origin, advertise registered `describedby` plus the
 `audit --require-purchase-evidence`. Empty evidence and replay objects are
 intentional.
 
+## GitHub-native pin
+
+A GitHub seller repository can pin the composite action instead of cloning
+this package into application dependencies. Use a full 40-character commit
+SHA. Do not use `@main`.
+
+```yaml
+- uses: epistemedeus/agent-payment-integrity@COMMIT_SHA
+  with:
+    origin: https://seller.example
+    route: /exact-paid-path
+    max-routes: "1"
+```
+
+That action runs the same unpaid `audit` CLI and writes SARIF. It still
+never signs or sends a payment. A passing action run is not runtime or
+settlement proof.
+
 ## Do not pay
 
 This workflow never creates a wallet, signs a payment, or sends a payment.

@@ -97,7 +97,47 @@ can add `--public-dns`. That explicit mode resolves through DNS-over-HTTPS and
 still pins a public result into the TLS request. The default honors the system
 resolver and fails closed on any non-public answer.
 
+## External seller GitHub Action
+
+An unpublished `npx` package still requires Node, lockfile, and SARIF-upload YAML
+in the seller repository. The reusable composite action is the GitHub-native pin:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: epistemedeus/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA
+        with:
+          origin: https://seller.example
+          route: /read
+          max-routes: "1"
+          upload-sarif: "true"
+```
+
+Pin the full commit SHA from
+`grok/integrity-distribution-convergence-corrected-20260820`. Do not use
+`@main`. Do not pin the discarded `c10f996` convergence or the uncorrected
+`c725c8d` action. The action accepts no secrets, installs this CLI with
+`npm ci --ignore-scripts` inside the action directory, runs only `audit`,
+writes SARIF, and optionally uploads the validated `sarif-path` output with
+the default `GITHUB_TOKEN`. Rejected `out` paths never reach upload. Nested
+report directories are created inside the workspace. Rejected origin
+userinfo is not written to the job summary. Fork `pull_request` jobs skip
+upload. Do not switch the example to `pull_request_target`. It has no
+wallet, signer, payment, or production mutation. `upload-sarif` defaults to
+false; set it true only when the job grants `security-events: write`. Copy
+`examples/seller-github-action.yml` for the full workflow. The installable
+skill is a separate agent-discovery surface; it does not replace this SHA
+pin. The packed npm tarball ships the skill and excludes the action.
+
 ## CI example
+
+In this repository, or after a local clone:
 
 ```yaml
 - run: npm ci --ignore-scripts
@@ -117,7 +157,9 @@ npx skills add epistemedeus/agent-payment-integrity
 
 The skill teaches seller CI and unpaid exact-route audit. It does not treat
 seller declarations as runtime, settlement, or delivery proof. The packed
-package also includes `skills/agent-payment-integrity/SKILL.md`.
+package also includes `skills/agent-payment-integrity/SKILL.md`. GitHub
+sellers who want a workflow pin should use the composite action above rather
+than copying clone steps into application CI.
 
 ## Candidate status
 

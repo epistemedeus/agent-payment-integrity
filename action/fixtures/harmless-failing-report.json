@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "agent-payment-integrity.audit.v5",
+  "checkedAt": "2026-08-20T00:00:00.000Z",
+  "origin": "https://seller.example",
+  "ok": false,
+  "routeCount": 1,
+  "validRoutes": 0,
+  "invalidRoutes": 1,
+  "machineBuyable": false,
+  "routes": [
+    {
+      "method": "GET",
+      "route": "/read",
+      "valid": false,
+      "status": 402,
+      "findings": ["seller_response_contract_absent"],
+      "protocols": ["x402"],
+      "runtimeChallengeVerified": false,
+      "probe": {
+        "attempted": false,
+        "reason": "harmless_offline_fixture"
+      }
+    }
+  ],
+  "safety": {
+    "credentialsUsed": false,
+    "paymentSigned": false,
+    "paymentSent": false,
+    "redirectsAllowed": false,
+    "dnsPinned": true,
+    "rawPaymentHeadersRetained": false,
+    "opaqueStateRetained": false,
+    "queryValuesRetained": false
+  },
+  "boundary": "Harmless offline fixture. Not a live origin. No wallet, signature, payment, seller POST, or production mutation."
+}

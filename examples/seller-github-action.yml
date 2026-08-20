@@ -1,0 +1,35 @@
+# Copy into a seller repository. Pin the full commit SHA from
+# grok/integrity-distribution-convergence-corrected-20260820. Do not use
+# @main, a floating tag, npm, pull_request_target, the discarded c10f996
+# convergence, or the uncorrected c725c8d action.
+#
+# permissions.security-events is required only when upload-sarif is true.
+# Fork pull_request jobs do not receive security-events write; the action
+# skips SARIF upload for those jobs so a passing audit is not turned into
+# a permission failure. The action accepts no secrets, wallets, or payment
+# credentials.
+
+name: seller-contract-integrity
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: epistemedeus/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA
+        with:
+          origin: https://seller.example
+          route: /read
+          max-routes: "1"
+          format: sarif
+          out: audit-result.sarif
+          upload-sarif: "true"
