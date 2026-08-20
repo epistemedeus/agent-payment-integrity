@@ -8,6 +8,7 @@ The deliberately narrow residual is one local CI run that:
 
 - enumerates paid GET operations from seller-owned OpenAPI documents;
 - constructs the complete credential-free crawler request;
+- accepts one local paid JSON body against a buyer-owned schema digest without a network fetch;
 - applies the official Bazaar extension and spec validators;
 - checks Bazaar input and output examples against their own JSON Schemas;
 - binds the complete x402 request URL, including query values;

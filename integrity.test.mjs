@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
-import { PURCHASE_EVIDENCE_RELATION, createPurchaseEvidenceManifest } from "agent-payment-policy";
+import { PURCHASE_EVIDENCE_RELATION, canonicalJson, createPurchaseEvidenceManifest, digest } from "agent-payment-policy";
 
 import {
+  OUTPUT_ACCEPT_SCHEMA_VERSION,
   SCHEMA_VERSION,
   auditIntegrity,
   buildAuditTarget,
   createPurchaseEvidenceScaffold,
   isPublicAddress,
   normalizeOrigin,
+  outputAccept,
   parseMppChallenges,
   parseX402Challenge,
   resolvePublicHost,
@@ -619,6 +625,79 @@ test("accepts an exact root-relative resource binding and rejects scheme-relativ
     });
     assert.ok(report.routes[0].findings.includes("x402_full_request_binding_mismatch"));
   }
+});
+
+test("output-accept decides accepted or rejected offline with digests only", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      data: {
+        type: "object",
+        properties: {
+          value: { type: "number" },
+          source: { type: "string", format: "uri" },
+        },
+        required: ["value", "source"],
+        additionalProperties: false,
+      },
+    },
+    required: ["data"],
+    additionalProperties: false,
+  };
+  const expectedSchemaDigest = digest(canonicalJson(schema));
+  const accepted = outputAccept({
+    schema,
+    expectedSchemaDigest,
+    body: { data: { value: 42, source: "https://example.com/source" } },
+  });
+  assert.equal(accepted.schemaVersion, OUTPUT_ACCEPT_SCHEMA_VERSION);
+  assert.equal(accepted.decision, "accepted");
+  assert.deepEqual(accepted.reasons, []);
+  assert.equal(accepted.schemaDigest, expectedSchemaDigest);
+  assert.equal(accepted.expectedSchemaDigest, expectedSchemaDigest);
+  assert.match(accepted.responseDigest, /^sha256:[0-9a-f]{64}$/);
+  assert.deepEqual(accepted.safety, {
+    credentialsUsed: false,
+    networkAccessed: false,
+    paymentSigned: false,
+    paymentSent: false,
+  });
+  assert.doesNotMatch(JSON.stringify(accepted), /example\.com|SECRET_BODY_VALUE/);
+
+  const mismatch = outputAccept({
+    schema,
+    expectedSchemaDigest: `sha256:${"f".repeat(64)}`,
+    body: { data: { value: 42, source: "https://example.com/source" } },
+  });
+  assert.equal(mismatch.decision, "rejected");
+  assert.deepEqual(mismatch.reasons, ["schema_digest_mismatch"]);
+  assert.equal(mismatch.schemaDigest, expectedSchemaDigest);
+  assert.equal(mismatch.responseDigest, null);
+
+  const rejected = outputAccept({
+    schema,
+    expectedSchemaDigest,
+    body: { data: { value: "SECRET_BODY_VALUE", source: "https://example.com/source" } },
+  });
+  assert.equal(rejected.decision, "rejected");
+  assert.deepEqual(rejected.reasons, ["output_schema_invalid"]);
+  assert.doesNotMatch(JSON.stringify(rejected), /SECRET_BODY_VALUE|example\.com/);
+
+  const cli = new URL("./cli.mjs", import.meta.url);
+  const help = spawnSync(process.execPath, [cli.pathname], { encoding: "utf8" });
+  assert.match(help.stderr, /output-accept <schema-file> <digest-file> <body-file>/);
+  const directory = mkdtempSync(join(tmpdir(), "agent-payment-integrity-"));
+  const schemaFile = join(directory, "schema.json");
+  const digestFile = join(directory, "schema-digest.txt");
+  const bodyFile = join(directory, "paid-body.json");
+  writeFileSync(schemaFile, JSON.stringify(schema));
+  writeFileSync(digestFile, expectedSchemaDigest);
+  writeFileSync(bodyFile, JSON.stringify({ data: { value: 42, source: "https://example.com/source" } }));
+  const check = spawnSync(process.execPath, [cli.pathname, "output-accept", schemaFile, digestFile, bodyFile], { encoding: "utf8" });
+  assert.equal(check.status, 0, check.stderr);
+  const report = JSON.parse(check.stdout);
+  assert.equal(report.decision, "accepted");
+  assert.doesNotMatch(check.stdout, /example\.com|SECRET_BODY_VALUE/);
 });
 
 test("emits SARIF with controlled findings and no raw headers", async () => {

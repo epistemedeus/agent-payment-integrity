@@ -16,3 +16,7 @@ the manifest's arbitrary evidence or boundary payloads.
 
 Use non-sensitive examples in required OpenAPI query parameters. A parameter
 whose name resembles a credential is rejected before any route probe.
+
+`output-accept` retains only the schema digest, expected schema digest,
+response digest, decision, and typed refuse codes. It does not retain the
+schema, paid body, or field values.

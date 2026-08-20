@@ -55,7 +55,14 @@ node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-purchase-evidence
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
 node cli.mjs scaffold --origin https://agents.samedaydesk.com --service-version 1.23.11 --out agent-payment-evidence.json
+node cli.mjs output-accept ./output-schema.json ./schema-digest.txt ./paid-body.json
 ```
+
+`output-accept` is offline. It reads a local JSON Schema, an expected schema
+digest, and a paid body JSON, wraps `inspectOutputSchema` →
+`prepareOutputValidator` → `validateOutput` from `agent-payment-policy` when
+those exports exist, and prints `accepted` or `rejected` with digests only. It
+does not echo the body, fetch, sign, or send a payment.
 
 Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
 Without it, a missing Bazaar extension remains visible in the report but does

@@ -12,16 +12,21 @@ import {
 import {
   PURCHASE_EVIDENCE_RELATION,
   SCHEMAS as POLICY_SCHEMAS,
+  canonicalJson,
   createPurchaseEvidenceManifest,
   evaluateResponseContract,
   selectPurchaseEvidenceLink,
+  validateOutput as policyValidateOutput,
   verifyPurchaseEvidenceManifest,
 } from "agent-payment-policy";
+import * as policy from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
+export const OUTPUT_ACCEPT_SCHEMA_VERSION = "agent-payment-integrity.output-accept.v1";
 export const TOOL_VERSION = "0.1.0-candidate.7";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
+const SCHEMA_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
 const DECIMAL_INTEGER = /^(?:0|[1-9][0-9]{0,77})$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -1002,6 +1007,229 @@ export function createPurchaseEvidenceScaffold({
       runtime: "The buyer must still verify the live payment challenge, paid response, receipt, settlement, and required output.",
       scaffold: "Generated from one passing credential-free point-in-time audit. Review, serve from the same origin, advertise the exact relation, and rerun integrity CI before release.",
     },
+  });
+}
+
+function outputAcceptSafety() {
+  return {
+    credentialsUsed: false,
+    networkAccessed: false,
+    paymentSigned: false,
+    paymentSent: false,
+  };
+}
+
+function outputAcceptReport(decision, reasons, extra = {}) {
+  return {
+    schemaVersion: OUTPUT_ACCEPT_SCHEMA_VERSION,
+    decision,
+    reasons: decision === "accepted" ? [] : [...new Set(reasons)].sort(),
+    schemaDigest: extra.schemaDigest ?? null,
+    expectedSchemaDigest: extra.expectedSchemaDigest ?? null,
+    responseDigest: extra.responseDigest ?? null,
+    safety: outputAcceptSafety(),
+  };
+}
+
+export function parseSchemaDigest(value) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (SCHEMA_DIGEST.test(trimmed.toLowerCase())) return trimmed.toLowerCase();
+    try {
+      return parseSchemaDigest(JSON.parse(trimmed));
+    } catch {
+      return null;
+    }
+  }
+  if (isPlainObject(value) && typeof value.schemaDigest === "string") {
+    const digest = value.schemaDigest.trim().toLowerCase();
+    return SCHEMA_DIGEST.test(digest) ? digest : null;
+  }
+  return null;
+}
+
+function composeInspectOutputSchema({ schema, requiredFields = [] } = {}) {
+  if (!isPlainObject(schema)) throw new Error("output schema must be a JSON object");
+  const report = evaluateResponseContract({
+    schemaVersion: POLICY_SCHEMAS.responseContractObservation,
+    source: "buyer_acceptance_schema",
+    request: { method: "GET", url: "https://buyer-policy.invalid/authorized-output" },
+    response: { status: 200, mediaType: "application/json", schema },
+  });
+  const guaranteed = new Set(report.requiredPaths);
+  const missingRequiredFields = requiredFields.filter((field) => !guaranteed.has(field));
+  if (report.decision !== "admissible" || missingRequiredFields.length) {
+    throw new Error(`output schema is not admissible for required fields${missingRequiredFields.length ? `: ${missingRequiredFields.join(",")}` : ""}`);
+  }
+  try {
+    const ajv = new Ajv2020({ allErrors: true, strict: true, validateFormats: true, logger: false });
+    addFormats(ajv);
+    ajv.compile(schema);
+  } catch {
+    throw new Error("output schema could not be compiled");
+  }
+  return Object.freeze({
+    schemaDigest: report.schemaDigest,
+    canonicalBytes: Buffer.byteLength(canonicalJson(schema)),
+    requiredPaths: Object.freeze([...report.requiredPaths]),
+    decision: report.decision,
+    schemaRetained: false,
+    credentialsUsed: false,
+    walletAccessed: false,
+    paymentSigned: false,
+    paymentSent: false,
+  });
+}
+
+function composePrepareOutputValidator({ schema, contract } = {}) {
+  const schemaDigest = parseSchemaDigest(contract?.schemaDigest);
+  if (!schemaDigest) throw new Error("output contract schemaDigest is required");
+  const requiredFields = Array.isArray(contract?.requiredFields) ? contract.requiredFields : [];
+  const inspection = composeInspectOutputSchema({ schema, requiredFields });
+  if (inspection.schemaDigest !== schemaDigest) throw new Error("output schema does not match schemaDigest");
+  let validate;
+  try {
+    const ajv = new Ajv2020({ allErrors: true, strict: true, validateFormats: true, logger: false });
+    addFormats(ajv);
+    validate = ajv.compile(schema);
+  } catch {
+    throw new Error("output schema could not be compiled");
+  }
+  return Object.freeze({
+    schemaDigest: inspection.schemaDigest,
+    validate(value) { return validate(value) === true; },
+  });
+}
+
+function composeValidateOutput(value, contract, { schemaValidator = null } = {}) {
+  const schemaDigest = parseSchemaDigest(contract?.schemaDigest);
+  const output = policyValidateOutput(value, {
+    mediaType: contract?.mediaType,
+    requiredFields: contract?.requiredFields,
+    maxResponseBytes: contract?.maxResponseBytes,
+  });
+  if (schemaDigest) {
+    if (!schemaValidator || schemaValidator.schemaDigest !== schemaDigest) {
+      throw new Error("output requires the exact prepared schema validator");
+    }
+    if (!schemaValidator.validate(value)) throw new Error("output failed JSON Schema validation");
+  }
+  return Object.freeze({
+    valid: true,
+    bytes: output.bytes,
+    responseDigest: output.responseDigest,
+    schemaValidated: Boolean(schemaDigest),
+    schemaDigest,
+  });
+}
+
+function outputAcceptPipeline() {
+  if (
+    typeof policy.inspectOutputSchema === "function"
+    && typeof policy.prepareOutputValidator === "function"
+    && typeof policy.validateOutput === "function"
+  ) {
+    return {
+      inspectOutputSchema: policy.inspectOutputSchema,
+      prepareOutputValidator: policy.prepareOutputValidator,
+      validateOutput: policy.validateOutput,
+    };
+  }
+  return {
+    inspectOutputSchema: composeInspectOutputSchema,
+    prepareOutputValidator: composePrepareOutputValidator,
+    validateOutput: composeValidateOutput,
+  };
+}
+
+function inspectRefuseCode(error) {
+  const message = String(error?.message || "");
+  if (/not admissible/.test(message)) return "schema_not_admissible";
+  if (/could not be compiled/.test(message)) return "schema_uncompilable";
+  return "invalid_schema";
+}
+
+function prepareRefuseCode(error) {
+  const message = String(error?.message || "");
+  if (/does not match schemaDigest/.test(message)) return "schema_digest_mismatch";
+  if (/schemaDigest is required/.test(message)) return "invalid_digest";
+  if (/could not be compiled/.test(message)) return "schema_uncompilable";
+  if (/not admissible/.test(message)) return "schema_not_admissible";
+  return "invalid_schema";
+}
+
+function validateRefuseCode(error) {
+  const message = String(error?.message || "");
+  if (/missing required fields/.test(message)) return "output_missing_required_fields";
+  if (/exceeds maxResponseBytes/.test(message)) return "output_exceeds_max_bytes";
+  if (/JSON Schema validation/.test(message)) return "output_schema_invalid";
+  if (/not JSON serializable/.test(message)) return "invalid_body";
+  if (/exact prepared schema validator/.test(message)) return "schema_validator_mismatch";
+  return "output_rejected";
+}
+
+export function outputAccept({ schema, expectedSchemaDigest, body } = {}) {
+  const expected = parseSchemaDigest(expectedSchemaDigest);
+  if (!expected) {
+    return outputAcceptReport("rejected", ["invalid_digest"]);
+  }
+  if (!isPlainObject(schema)) {
+    return outputAcceptReport("rejected", ["invalid_schema"], { expectedSchemaDigest: expected });
+  }
+  if (body === undefined) {
+    return outputAcceptReport("rejected", ["invalid_body"], { expectedSchemaDigest: expected });
+  }
+
+  const pipeline = outputAcceptPipeline();
+  let inspection;
+  try {
+    inspection = pipeline.inspectOutputSchema({ schema });
+  } catch (error) {
+    return outputAcceptReport("rejected", [inspectRefuseCode(error)], { expectedSchemaDigest: expected });
+  }
+
+  if (inspection.schemaDigest !== expected) {
+    return outputAcceptReport("rejected", ["schema_digest_mismatch"], {
+      schemaDigest: inspection.schemaDigest,
+      expectedSchemaDigest: expected,
+    });
+  }
+
+  let schemaValidator;
+  try {
+    schemaValidator = pipeline.prepareOutputValidator({
+      schema,
+      contract: {
+        mediaType: "application/json",
+        schemaDigest: expected,
+        requiredFields: inspection.requiredPaths,
+      },
+    });
+  } catch (error) {
+    return outputAcceptReport("rejected", [prepareRefuseCode(error)], {
+      schemaDigest: inspection.schemaDigest,
+      expectedSchemaDigest: expected,
+    });
+  }
+
+  let output;
+  try {
+    output = pipeline.validateOutput(body, {
+      mediaType: "application/json",
+      schemaDigest: expected,
+      requiredFields: inspection.requiredPaths,
+    }, { schemaValidator });
+  } catch (error) {
+    return outputAcceptReport("rejected", [validateRefuseCode(error)], {
+      schemaDigest: inspection.schemaDigest,
+      expectedSchemaDigest: expected,
+    });
+  }
+
+  return outputAcceptReport("accepted", [], {
+    schemaDigest: inspection.schemaDigest,
+    expectedSchemaDigest: expected,
+    responseDigest: output.responseDigest,
   });
 }
 
