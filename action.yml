@@ -1,0 +1,106 @@
+name: agent-payment-integrity
+description: Credential-free audit of exact x402 and MPP request, payment, and output contracts. Writes SARIF. Never signs or sends a payment.
+author: epistemedeus
+inputs:
+  origin:
+    description: Credential-free HTTPS origin on port 443 (hostname only, no userinfo, path, query, or port).
+    required: true
+  route:
+    description: Optional exact absolute paid path to audit. Omit to audit declared paid routes up to max-routes.
+    required: false
+    default: ""
+  method:
+    description: HTTP method to select from seller declarations. GET probes the unpaid 402. POST is OpenAPI contract-only and transmits no target request.
+    required: false
+    default: GET
+  required-paths:
+    description: Optional comma-separated dotted JSON paths the success schema must recursively require.
+    required: false
+    default: ""
+  max-routes:
+    description: Maximum paid routes to audit. Integer from 1 to 64.
+    required: false
+    default: "64"
+  format:
+    description: Report format written to out. One of sarif, json, or text.
+    required: false
+    default: sarif
+  out:
+    description: Workspace-relative file for the report. Must not be absolute or contain parent segments.
+    required: false
+    default: audit-result.sarif
+  public-dns:
+    description: If true, resolve through DNS-over-HTTPS and pin the public result. Must be exactly true or false.
+    required: false
+    default: "false"
+  require-bazaar:
+    description: If true, missing Bazaar discovery fails the audit. Must be exactly true or false.
+    required: false
+    default: "false"
+  require-purchase-evidence:
+    description: If true, the exact purchase-evidence relation must verify. Must be exactly true or false.
+    required: false
+    default: "false"
+  upload-sarif:
+    description: If true, upload the SARIF file to GitHub code scanning using the default GITHUB_TOKEN. Requires security-events write. Must be exactly true or false.
+    required: false
+    default: "false"
+outputs:
+  sarif-path:
+    description: Workspace-relative path of the written SARIF or report file.
+    value: ${{ steps.audit.outputs.sarif-path }}
+  ok:
+    description: true when the audit passed; false when it failed closed.
+    value: ${{ steps.audit.outputs.ok }}
+  origin:
+    description: Normalized origin that was audited.
+    value: ${{ steps.audit.outputs.origin }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js 22
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: "22"
+
+    - name: Install pinned CLI
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        GITHUB_TOKEN: ""
+        GH_TOKEN: ""
+        NPM_TOKEN: ""
+        NODE_AUTH_TOKEN: ""
+        NODE_OPTIONS: ""
+        NPM_CONFIG_IGNORE_SCRIPTS: "true"
+      run: npm ci --ignore-scripts --omit=dev
+
+    - name: Audit seller contracts
+      id: audit
+      shell: bash
+      env:
+        GITHUB_ACTION_PATH: ${{ github.action_path }}
+        GITHUB_TOKEN: ""
+        GH_TOKEN: ""
+        NPM_TOKEN: ""
+        NODE_AUTH_TOKEN: ""
+        NODE_OPTIONS: ""
+        INPUT_ORIGIN: ${{ inputs.origin }}
+        INPUT_ROUTE: ${{ inputs.route }}
+        INPUT_METHOD: ${{ inputs.method }}
+        INPUT_REQUIRED_PATHS: ${{ inputs.required-paths }}
+        INPUT_MAX_ROUTES: ${{ inputs.max-routes }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_OUT: ${{ inputs.out }}
+        INPUT_PUBLIC_DNS: ${{ inputs.public-dns }}
+        INPUT_REQUIRE_BAZAAR: ${{ inputs.require-bazaar }}
+        INPUT_REQUIRE_PURCHASE_EVIDENCE: ${{ inputs.require-purchase-evidence }}
+      run: node "$GITHUB_ACTION_PATH/action/run.mjs"
+
+    - name: Upload SARIF
+      if: ${{ always() && inputs.upload-sarif == 'true' && inputs.format == 'sarif' && steps.audit.outputs.sarif-path != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+      with:
+        sarif_file: ${{ steps.audit.outputs.sarif-path }}
+        category: agent-payment-integrity
+        wait-for-processing: "false"
