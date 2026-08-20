@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { PURCHASE_EVIDENCE_RELATION, createPurchaseEvidenceManifest } from "agent-payment-policy";
 
 import {
+  CONSTRUCT_CHECK_SCHEMA_VERSION,
   SCHEMA_VERSION,
   auditIntegrity,
   buildAuditTarget,
+  constructCheck,
   createPurchaseEvidenceScaffold,
   isPublicAddress,
   normalizeOrigin,
@@ -619,6 +625,61 @@ test("accepts an exact root-relative resource binding and rejects scheme-relativ
     });
     assert.ok(report.routes[0].findings.includes("x402_full_request_binding_mismatch"));
   }
+});
+
+test("construct-check decides constructible or not_constructible offline", () => {
+  const finished = constructCheck({
+    method: "GET",
+    url: "https://seller.example/read?site=https://example.com",
+    effect: "read_only",
+  });
+  assert.equal(finished.schemaVersion, CONSTRUCT_CHECK_SCHEMA_VERSION);
+  assert.equal(finished.decision, "constructible");
+  assert.deepEqual(finished.reasons, []);
+  assert.equal(finished.request.publicRoute, "GET https://seller.example/read");
+  assert.deepEqual(finished.request.queryKeys, ["site"]);
+  assert.deepEqual(finished.safety, {
+    credentialsUsed: false,
+    networkAccessed: false,
+    paymentSigned: false,
+    paymentSent: false,
+  });
+  assert.doesNotMatch(JSON.stringify(finished), /https:\/\/example\.com/);
+
+  const relative = constructCheck({ method: "GET", url: "/extract" });
+  assert.equal(relative.decision, "not_constructible");
+  assert.deepEqual(relative.reasons, ["invalid_target"]);
+  assert.equal(relative.request, null);
+
+  const credential = constructCheck({
+    method: "GET",
+    url: "https://seller.example/read?api_key=secret",
+  });
+  assert.equal(credential.decision, "not_constructible");
+  assert.deepEqual(credential.reasons, ["credential_query_key"]);
+  assert.doesNotMatch(JSON.stringify(credential), /secret/);
+
+  const mutating = constructCheck({
+    method: "GET",
+    url: "https://seller.example/read?site=https://example.com",
+    effect: "state_changing",
+  });
+  assert.equal(mutating.decision, "not_constructible");
+  assert.deepEqual(mutating.reasons, ["non_read_only_effect"]);
+  assert.equal(mutating.request, null);
+
+  const cli = new URL("./cli.mjs", import.meta.url);
+  const help = spawnSync(process.execPath, [cli.pathname], { encoding: "utf8" });
+  assert.match(help.stderr, /construct-check <file>/);
+  const directory = mkdtempSync(join(tmpdir(), "agent-payment-integrity-"));
+  const file = join(directory, "operation.json");
+  writeFileSync(file, JSON.stringify({
+    method: "GET",
+    url: "https://seller.example/read?site=https://example.com",
+  }));
+  const check = spawnSync(process.execPath, [cli.pathname, "construct-check", file], { encoding: "utf8" });
+  assert.equal(check.status, 0, check.stderr);
+  assert.equal(JSON.parse(check.stdout).decision, "constructible");
 });
 
 test("emits SARIF with controlled findings and no raw headers", async () => {

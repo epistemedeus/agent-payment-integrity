@@ -55,7 +55,13 @@ node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-purchase-evidence
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
 node cli.mjs scaffold --origin https://agents.samedaydesk.com --service-version 1.23.11 --out agent-payment-evidence.json
+node cli.mjs construct-check ./operation.json
 ```
+
+`construct-check` is offline. It reads one local JSON object with `method`,
+`url`, and optional `body` / `effect`, wraps `agent-payment-policy`'s
+`normalizeRequest`, and prints `constructible` or `not_constructible`. It does
+not fetch, sign, or send a payment.
 
 Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
 Without it, a missing Bazaar extension remains visible in the report but does

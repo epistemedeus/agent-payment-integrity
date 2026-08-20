@@ -16,3 +16,7 @@ the manifest's arbitrary evidence or boundary payloads.
 
 Use non-sensitive examples in required OpenAPI query parameters. A parameter
 whose name resembles a credential is rejected before any route probe.
+
+`construct-check` retains only the public method, origin, path, query-key names,
+request binding digest, optional body digest, decision, and typed refuse codes.
+It does not retain query values, request bodies, or unfinished URL templates.

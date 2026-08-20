@@ -2,7 +2,7 @@
 
 import fs from "node:fs/promises";
 
-import { auditOrigin, createPurchaseEvidenceScaffold, toSarif } from "./integrity.mjs";
+import { auditOrigin, constructCheck, createPurchaseEvidenceScaffold, toSarif } from "./integrity.mjs";
 
 function usage() {
   return `agent-payment-integrity
@@ -10,11 +10,14 @@ function usage() {
 Usage:
   agent-payment-integrity audit --origin https://seller.example [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar] [--require-purchase-evidence]
   agent-payment-integrity scaffold --origin https://seller.example --service-version 1.0.0 [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--out path] [--public-dns] [--assert-read-only-post]
+  agent-payment-integrity construct-check <file>
 
 GET audits perform a credential-free unpaid challenge probe. POST audits inspect
 the exact public OpenAPI contract without transmitting a target request. The CLI
 never signs or sends a payment. Scaffold emits a conservative seller-declared
-manifest only from a passing audit and requires an explicit assertion for POST.`;
+manifest only from a passing audit and requires an explicit assertion for POST.
+construct-check reads one local HTTPS operation JSON (method, url, optional
+body/effect) and prints constructible or not_constructible with no network.`;
 }
 
 function option(name, fallback = undefined) {
@@ -37,6 +40,19 @@ function textReport(report) {
 
 async function main() {
   const command = process.argv[2];
+  if (command === "construct-check") {
+    const inputPath = process.argv[3];
+    if (!inputPath || inputPath.startsWith("-")) {
+      console.error(usage());
+      process.exitCode = 2;
+      return;
+    }
+    const input = JSON.parse(await fs.readFile(inputPath, { encoding: "utf8" }));
+    const report = constructCheck(input);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (report.decision !== "constructible") process.exitCode = 1;
+    return;
+  }
   if (!["audit", "scaffold"].includes(command)) {
     console.error(usage());
     process.exitCode = command === "--help" || command === "-h" ? 0 : 2;

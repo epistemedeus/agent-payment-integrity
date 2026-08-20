@@ -14,14 +14,19 @@ import {
   SCHEMAS as POLICY_SCHEMAS,
   createPurchaseEvidenceManifest,
   evaluateResponseContract,
+  normalizeRequest,
   selectPurchaseEvidenceLink,
   verifyPurchaseEvidenceManifest,
 } from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
+export const CONSTRUCT_CHECK_SCHEMA_VERSION = "agent-payment-integrity.construct-check.v1";
 export const TOOL_VERSION = "0.1.0-candidate.7";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
+const PATH_TEMPLATE = /\{[^}]+\}/;
+const COLON_PATH_PARAM = /(?:^|\/):[A-Za-z_][A-Za-z0-9_]*(?:\/|$)/;
+const UNRESOLVED_QUERY_VALUE = /^(?:\{[^}]+\}$|<[^>]+>$|\$[A-Za-z_][A-Za-z0-9_]*$)$/;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
 const DECIMAL_INTEGER = /^(?:0|[1-9][0-9]{0,77})$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -1003,6 +1008,99 @@ export function createPurchaseEvidenceScaffold({
       scaffold: "Generated from one passing credential-free point-in-time audit. Review, serve from the same origin, advertise the exact relation, and rerun integrity CI before release.",
     },
   });
+}
+
+function publicConstructedRequest(request) {
+  return {
+    method: request.method,
+    origin: request.origin,
+    pathname: request.pathname,
+    queryKeys: [...request.queryKeys],
+    publicRoute: request.publicRoute,
+    bodyBinding: request.bodyBinding,
+    bindingDigest: request.bindingDigest,
+  };
+}
+
+function constructCheckRefuseCode(error) {
+  const message = String(error?.message || "");
+  if (/credential-like/.test(message)) return "credential_query_key";
+  return "invalid_target";
+}
+
+function unfinishedTargetReasons(target) {
+  if (typeof target !== "string" || !target.trim()) return ["invalid_target"];
+  let url;
+  try {
+    url = new URL(target);
+  } catch {
+    return ["invalid_target"];
+  }
+  const reasons = [];
+  let pathname = url.pathname;
+  try { pathname = decodeURIComponent(url.pathname); } catch { /* keep encoded pathname */ }
+  if (PATH_TEMPLATE.test(target) || PATH_TEMPLATE.test(pathname) || COLON_PATH_PARAM.test(pathname)) {
+    reasons.push("unfinished_path_parameter");
+  }
+  for (const queryValue of url.searchParams.values()) {
+    if (queryValue === "" || UNRESOLVED_QUERY_VALUE.test(queryValue) || PATH_TEMPLATE.test(queryValue)) {
+      reasons.push("unresolved_query_value");
+      break;
+    }
+  }
+  return reasons;
+}
+
+export function constructCheck(input) {
+  const reasons = new Set();
+  if (!isPlainObject(input) || typeof input.url !== "string" || !input.url.trim()) {
+    return {
+      schemaVersion: CONSTRUCT_CHECK_SCHEMA_VERSION,
+      decision: "not_constructible",
+      reasons: ["invalid_target"],
+      request: null,
+      safety: {
+        credentialsUsed: false,
+        networkAccessed: false,
+        paymentSigned: false,
+        paymentSent: false,
+      },
+    };
+  }
+  if (input.effect !== undefined && input.effect !== null && input.effect !== "read_only") {
+    reasons.add("non_read_only_effect");
+  }
+  for (const reason of unfinishedTargetReasons(input.url)) reasons.add(reason);
+
+  let request = null;
+  if (!reasons.has("non_read_only_effect") && !reasons.has("unfinished_path_parameter") && !reasons.has("unresolved_query_value") && !reasons.has("invalid_target")) {
+    try {
+      const hasBody = Object.prototype.hasOwnProperty.call(input, "body");
+      request = normalizeRequest(
+        input.method,
+        input.url,
+        hasBody ? { body: input.body, mediaType: input.mediaType } : {},
+      );
+    } catch (error) {
+      reasons.add(constructCheckRefuseCode(error));
+      request = null;
+    }
+  }
+
+  const sortedReasons = [...reasons].sort();
+  const decision = sortedReasons.length || !request ? "not_constructible" : "constructible";
+  return {
+    schemaVersion: CONSTRUCT_CHECK_SCHEMA_VERSION,
+    decision,
+    reasons: decision === "constructible" ? [] : sortedReasons,
+    request: request ? publicConstructedRequest(request) : null,
+    safety: {
+      credentialsUsed: false,
+      networkAccessed: false,
+      paymentSigned: false,
+      paymentSent: false,
+    },
+  };
 }
 
 export function toSarif(report) {
