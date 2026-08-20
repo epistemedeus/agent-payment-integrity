@@ -109,6 +109,16 @@ rejects required query parameters that resemble credentials, blocks literal or
 resolved private addresses, pins an approved DNS result into the TLS request,
 refuses redirects, and caps response time, headers, and bytes.
 
+## Install the agent skill
+
+```bash
+npx skills add epistemedeus/agent-payment-integrity
+```
+
+The skill teaches seller CI and unpaid exact-route audit. It does not treat
+seller declarations as runtime, settlement, or delivery proof. The packed
+package also includes `skills/agent-payment-integrity/SKILL.md`.
+
 ## Candidate status
 
 This is a reference candidate, not a catalog-indexing guarantee or paid-service
