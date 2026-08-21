@@ -104,3 +104,7 @@ runs:
         sarif_file: ${{ steps.audit.outputs.sarif-path }}
         category: agent-payment-integrity
         wait-for-processing: "false"
+
+branding:
+  icon: shield
+  color: blue

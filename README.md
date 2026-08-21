@@ -119,10 +119,13 @@ jobs:
           upload-sarif: "true"
 ```
 
-Pin the full commit SHA from
-`grok/integrity-distribution-convergence-corrected-20260820`. Do not use
-`@main`. Do not pin the discarded `c10f996` convergence or the uncorrected
-`c725c8d` action. The action accepts no secrets, installs this CLI with
+`v0.1.0-candidate.8` is the first tag that contains this Action. Earlier
+candidate tags do not. GitHub Marketplace or tag syntax such as
+`epistemedeus/agent-payment-integrity@v0.1.0-candidate.8` is a convenience
+for discovery and copy-paste. Pin the full commit SHA of that tagged tree
+for production CI. Do not use `@main`. A passing run is seller-declared
+unpaid contract evidence. It is not runtime, settlement, delivery, demand,
+or adoption proof. The action accepts no secrets, installs this CLI with
 `npm ci --ignore-scripts` inside the action directory, runs only `audit`,
 writes SARIF, and optionally uploads the validated `sarif-path` output with
 the default `GITHUB_TOKEN`. Rejected `out` paths never reach upload. Nested
@@ -133,7 +136,8 @@ wallet, signer, payment, or production mutation. `upload-sarif` defaults to
 false; set it true only when the job grants `security-events: write`. Copy
 `examples/seller-github-action.yml` for the full workflow. The installable
 skill is a separate agent-discovery surface; it does not replace this SHA
-pin. The packed npm tarball ships the skill and excludes the action.
+pin. The packed npm tarball ships the skill and excludes the action. The
+package remains unpublished on npm.
 
 ## CI example
 
@@ -166,7 +170,11 @@ than copying clone steps into application CI.
 This is a reference candidate, not a catalog-indexing guarantee or paid-service
 quality score. An unpaid challenge cannot prove settlement or paid delivery.
 The package will remain unpublished on npm until an external integration or
-design review establishes that the interface is worth stabilizing.
+design review establishes that the interface is worth stabilizing. A GitHub
+Marketplace listing, if created after a separate approval, is a discovery
+convenience. It does not change this candidate boundary, publish the package
+to npm, or convert a passing Action run into runtime, settlement, delivery,
+demand, or adoption proof.
 
 See [the threat model](docs/threat-model.md) and
 [data-handling boundary](docs/data-handling.md). The

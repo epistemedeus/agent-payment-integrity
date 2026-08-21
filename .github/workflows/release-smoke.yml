@@ -1,0 +1,67 @@
+# Manual-only unpaid smoke for a release candidate Action tree.
+# Dispatch this workflow and pass the full 40-character commit SHA to test.
+# Validate and check out that immutable commit with a full-SHA-pinned checkout
+# action, verify the resulting HEAD, then run the
+# local composite Action from the workspace root. Do not use the
+# same-repository $/ form; that would bind to the dispatch commit rather
+# than inputs.commit_sha.
+#
+# A passing run is seller-declared unpaid contract evidence for GET
+# /extract against the live origin. It is not runtime, settlement,
+# delivery, demand, or adoption proof. It does not use secrets, wallets,
+# payments, or mutate production. upload-sarif stays false.
+
+name: release-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full 40-character commit SHA of the Action tree to smoke-test.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate the immutable Action commit
+        shell: bash
+        env:
+          ACTION_COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          if [[ ! "$ACTION_COMMIT_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::commit_sha must be a full 40-character commit SHA"
+            exit 1
+          fi
+
+      - name: Check out the explicit Action commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Verify the checked out Action commit
+        shell: bash
+        env:
+          ACTION_COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          actual_commit_sha="$(git rev-parse HEAD)"
+          if [[ "${actual_commit_sha,,}" != "${ACTION_COMMIT_SHA,,}" ]]; then
+            echo "::error::checked out commit does not match commit_sha"
+            exit 1
+          fi
+
+      - name: Audit live unpaid extract contract
+        uses: ./
+        with:
+          origin: https://agents.samedaydesk.com
+          route: /extract
+          method: GET
+          required-paths: ok,url,title
+          max-routes: "1"
+          upload-sarif: "false"

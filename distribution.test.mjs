@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { TOOL_VERSION } from "./integrity.mjs";
 import { parseOut, runAction } from "./action/run.mjs";
 
 const root = fileURLToPath(new URL("./", import.meta.url));
@@ -32,9 +33,10 @@ const UNPACKED = [
   "package/distribution.test.mjs",
   "package/examples/seller-github-action.yml",
   "package/.github/workflows/ci.yml",
+  "package/.github/workflows/release-smoke.yml",
 ];
 const FORBIDDEN = /\b(privateKey|BEGIN PRIVATE KEY|signAndSend|eth_sendRawTransaction|X-PAYMENT\s*:)\b/;
-const CORRECTED_BRANCH = "grok/integrity-distribution-convergence-corrected-20260820";
+const OBSOLETE_GUIDANCE = /grok\/integrity-distribution-convergence-corrected-20260820|c10f996|c725c8d/;
 
 function isolatedNpmEnv(cwd, cache) {
   return {
@@ -68,7 +70,11 @@ function packedListing() {
 }
 
 test("packaging: skill ships in npm; action stays git-consumed", { timeout: 60_000 }, () => {
-  assert.equal(packageJson.version, "0.1.0-candidate.7");
+  const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+  assert.equal(packageJson.version, "0.1.0-candidate.8");
+  assert.equal(TOOL_VERSION, packageJson.version);
+  assert.equal(lock.version, packageJson.version);
+  assert.equal(lock.packages[""].version, packageJson.version);
   assert.equal(packageJson.private, true);
   assert.ok(packageJson.files.includes("skills"));
   assert.equal(packageJson.files.includes("action.yml"), false);
@@ -79,7 +85,7 @@ test("packaging: skill ships in npm; action stays git-consumed", { timeout: 60_0
 
   const { filename, listing, dir } = packedListing();
   try {
-    assert.match(filename, /^agent-payment-integrity-0\.1\.0-candidate\.7\.tgz$/);
+    assert.match(filename, /^agent-payment-integrity-0\.1\.0-candidate\.8\.tgz$/);
     for (const path of PACKED) {
       assert.match(listing, new RegExp(`^${path}$`, "m"), path);
     }
@@ -92,25 +98,35 @@ test("packaging: skill ships in npm; action stays git-consumed", { timeout: 60_0
   }
 });
 
-test("docs: skill install and SHA-pinned corrected action are both documented", () => {
+test("docs: skill install and SHA-pinned action are both documented", () => {
   assert.match(readme, /npx skills add epistemedeus\/agent-payment-integrity/);
   assert.match(readme, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
-  assert.match(readme, new RegExp(CORRECTED_BRANCH.replaceAll("/", "\\/")));
+  assert.match(readme, /v0\.1\.0-candidate\.8` is the first tag that contains this Action/);
+  assert.match(readme, /Marketplace or tag syntax/);
+  assert.match(readme, /Pin the full commit SHA of that tagged tree/);
+  assert.match(readme, /A passing run is seller-declared\nunpaid contract evidence/);
+  assert.match(readme, /not runtime, settlement, delivery, demand,\nor adoption proof/);
+  assert.match(readme, /package remains unpublished on npm/);
   assert.match(readme, /validated `sarif-path` output/);
   assert.match(readme, /Fork `pull_request` jobs skip\nupload/);
   assert.match(readme, /Rejected origin\nuserinfo is not written to the job summary/);
   assert.match(readme, /Rejected `out` paths never reach upload/);
   assert.doesNotMatch(readme, /grok\/github-action-20260820/);
+  assert.doesNotMatch(readme, OBSOLETE_GUIDANCE);
   assert.doesNotMatch(readme, /agent-payment-integrity@main/);
   assert.match(example, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
-  assert.match(example, new RegExp(CORRECTED_BRANCH.replaceAll("/", "\\/")));
+  assert.match(example, /v0\.1\.0-candidate\.8 tree/);
+  assert.match(example, /Marketplace or tag syntax is a convenience/);
+  assert.doesNotMatch(example, OBSOLETE_GUIDANCE);
   assert.doesNotMatch(example, /agent-payment-integrity@main/);
   assert.match(skill, /uses: epistemedeus\/agent-payment-integrity@COMMIT_SHA/);
   assert.match(skill, /Do not use `@main`/);
+  assert.match(skill, /v0\.1\.0-candidate\.8` is the\nfirst tag that contains the Action/);
   assert.match(contributing, /skill\.test\.mjs/);
   assert.match(contributing, /action\.test\.mjs/);
   assert.match(contributing, /Packed npm contents must include `skills\/`/);
   assert.match(contributing, /steps\.audit\.outputs\.sarif-path/);
+  assert.match(contributing, /workflow_dispatch/);
 });
 
 test("no-wallet: default CLI, skill, and action stay unpaid", () => {

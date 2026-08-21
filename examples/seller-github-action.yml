@@ -1,7 +1,10 @@
-# Copy into a seller repository. Pin the full commit SHA from
-# grok/integrity-distribution-convergence-corrected-20260820. Do not use
-# @main, a floating tag, npm, pull_request_target, the discarded c10f996
-# convergence, or the uncorrected c725c8d action.
+# Copy into a seller repository. Pin the full commit SHA of the
+# v0.1.0-candidate.8 tree, the first tag that contains this Action.
+# Marketplace or tag syntax is a convenience. Do not use @main, a
+# floating tag, npm, or pull_request_target. A passing run is
+# seller-declared unpaid contract evidence, not runtime, settlement,
+# delivery, demand, or adoption proof. The package remains unpublished
+# on npm.
 #
 # permissions.security-events is required only when upload-sarif is true.
 # Fork pull_request jobs do not receive security-events write; the action

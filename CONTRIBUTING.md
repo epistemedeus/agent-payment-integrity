@@ -14,4 +14,8 @@ keep nested `uses:` lines pinned to full commit SHAs, with no secret or
 not the raw `out` input, and must skip fork `pull_request` jobs. Do not add
 `.github/workflows` files from an OAuth app token that lacks `workflow`
 scope. Packed npm contents must include `skills/` and exclude the GitHub
-Action tree; the action is consumed from git.
+Action tree; the action is consumed from git. The optional release-smoke
+workflow must remain `workflow_dispatch` only, must check out an explicit
+full 40-character commit SHA, must verify the resulting `HEAD` before it runs
+the local composite Action with `upload-sarif` false, and must not use secrets,
+wallets, or payments.

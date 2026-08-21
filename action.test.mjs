@@ -49,6 +49,7 @@ test("action.yml is a pinned composite action with no secret or token inputs", a
   assert.equal(source.includes("scaffold"), false);
   assert.equal(source.includes("persist-credentials"), false);
   assert.ok(source.includes("GITHUB_TOKEN: \"\""));
+  assert.match(source, /^branding:\n  icon: shield\n  color: blue\n/m);
 });
 
 test("action.yml pins nested actions to full commit SHAs", async () => {
@@ -85,6 +86,10 @@ test("example seller workflow is credential-free and does not use npx or main", 
   assert.match(source, /permissions:\n  contents: read\n  security-events: write/);
   assert.match(source, /origin: https:\/\/seller\.example/);
   assert.match(source, /upload-sarif: "true"/);
+  assert.match(source, /v0\.1\.0-candidate\.8/);
+  assert.match(source, /Marketplace or tag syntax is a convenience/);
+  assert.doesNotMatch(source, /grok\/integrity-distribution-convergence-corrected-20260820/);
+  assert.doesNotMatch(source, /c10f996|c725c8d/);
 });
 
 test("action sources contain no wallet, signing, scaffold, or publish commands", async () => {
@@ -201,7 +206,7 @@ test("harmless fixtures are unpaid, unsigned, and produce SARIF without raw head
   const sarif = toSarif(failing);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "seller_response_contract_absent");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.7");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.8");
 });
 
 test("runAction fail-closes on invalid origin, writes SARIF, and does not spawn the CLI", async () => {
@@ -325,7 +330,7 @@ test("requestPinned remains GET-only and inputErrorSarif names this candidate", 
   assert.match(requestPinned, /method: "GET"/);
   assert.equal(requestPinned.includes("POST"), false);
   const sarif = inputErrorSarif("origin is required");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.7");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.8");
   assert.equal(sarif.runs[0].results[0].ruleId, "action_input_invalid");
 });
 
@@ -399,4 +404,64 @@ test("example seller workflow warns against pull_request_target and documents fo
   assert.match(source, /Fork pull_request/);
   assert.equal(source.includes("pull_request_target:"), false);
   assert.match(source, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
+});
+
+test("action.yml Marketplace branding is allowed shield/blue and does not change behavior", async () => {
+  const source = await read("action.yml");
+  const allowedIcons = new Set(["shield", "lock", "check-circle", "alert-triangle", "eye"]);
+  const allowedColors = new Set(["white", "black", "yellow", "blue", "green", "orange", "red", "purple", "gray-dark"]);
+  const icon = source.match(/^branding:\n  icon: ([a-z0-9-]+)\n  color: ([a-z0-9-]+)\n/m);
+  assert.ok(icon, "branding.icon and branding.color must be present");
+  assert.equal(icon[1], "shield");
+  assert.equal(icon[2], "blue");
+  assert.equal(allowedIcons.has(icon[1]), true);
+  assert.equal(allowedColors.has(icon[2]), true);
+  const uses = extractUses(source);
+  assert.deepEqual(uses, [
+    "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+    "github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd",
+  ]);
+  assert.match(source, /using: composite/);
+  assert.equal(source.includes("secrets."), false);
+});
+
+test("release-smoke is manual-only, pins and verifies a full commit SHA, and runs the local unpaid Action", async () => {
+  const source = await read(".github/workflows/release-smoke.yml");
+  assert.match(source, /^name: release-smoke/m);
+  assert.match(source, /^on:\n  workflow_dispatch:\n    inputs:\n      commit_sha:\n/m);
+  assert.doesNotMatch(source, /^\s+(push|pull_request|schedule|workflow_call|release):/m);
+  assert.equal(source.includes("secrets."), false);
+  assert.doesNotMatch(source, /^\s+environment:/m);
+  assert.equal(/\btoken:/i.test(source), false);
+  assert.match(source, /permissions:\n  contents: read\n/);
+  assert.equal(source.includes("security-events"), false);
+  assert.match(source, /ACTION_COMMIT_SHA: \$\{\{ inputs\.commit_sha \}\}/);
+  assert.match(source, /\^\[0-9a-fA-F\]\{40\}\$/);
+  assert.match(source, /uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
+  assert.match(source, /ref: \$\{\{ inputs\.commit_sha \}\}/);
+  assert.match(source, /persist-credentials: false/);
+  assert.match(source, /actual_commit_sha="\$\(git rev-parse HEAD\)"/);
+  assert.match(source, /\$\{actual_commit_sha,,\}/);
+  assert.match(source, /\$\{ACTION_COMMIT_SHA,,\}/);
+  assert.equal(source.includes("inputs.ref"), false);
+  assert.match(source, /uses: \.\//);
+  assert.equal(source.includes("uses: $/"), false);
+  assert.match(source, /origin: https:\/\/agents\.samedaydesk\.com/);
+  assert.match(source, /route: \/extract/);
+  assert.match(source, /method: GET/);
+  assert.match(source, /required-paths: ok,url,title/);
+  assert.match(source, /max-routes: "1"/);
+  assert.match(source, /upload-sarif: "false"/);
+  assert.equal(FORBIDDEN_SOURCE.test(source), false);
+  assert.match(source, /seller-declared unpaid contract evidence/);
+  const uses = extractUses(source);
+  assert.deepEqual(uses, [
+    "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+    "./",
+  ]);
+  for (const spec of uses) {
+    if (spec === "./") continue;
+    const sha = spec.split("@")[1];
+    assert.match(sha, PINNED_SHA);
+  }
 });
