@@ -86,7 +86,7 @@ test("example seller workflow is credential-free and does not use npx or main", 
   assert.match(source, /permissions:\n  contents: read\n  security-events: write/);
   assert.match(source, /origin: https:\/\/seller\.example/);
   assert.match(source, /upload-sarif: "true"/);
-  assert.match(source, /v0\.1\.0-candidate\.8/);
+  assert.match(source, /v0\.1\.0-candidate\.9/);
   assert.match(source, /Marketplace or tag syntax is a convenience/);
   assert.doesNotMatch(source, /grok\/integrity-distribution-convergence-corrected-20260820/);
   assert.doesNotMatch(source, /c10f996|c725c8d/);
@@ -206,7 +206,7 @@ test("harmless fixtures are unpaid, unsigned, and produce SARIF without raw head
   const sarif = toSarif(failing);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "seller_response_contract_absent");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.8");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.9");
 });
 
 test("runAction fail-closes on invalid origin, writes SARIF, and does not spawn the CLI", async () => {
@@ -330,7 +330,7 @@ test("requestPinned remains GET-only and inputErrorSarif names this candidate", 
   assert.match(requestPinned, /method: "GET"/);
   assert.equal(requestPinned.includes("POST"), false);
   const sarif = inputErrorSarif("origin is required");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.8");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.9");
   assert.equal(sarif.runs[0].results[0].ruleId, "action_input_invalid");
 });
 
@@ -408,6 +408,10 @@ test("example seller workflow warns against pull_request_target and documents fo
 
 test("action.yml Marketplace branding is allowed shield/blue and does not change behavior", async () => {
   const source = await read("action.yml");
+  const description = source.match(/^description: (.+)$/m);
+  assert.ok(description, "description must be present");
+  assert.equal(description[1], "Credential-free x402 and MPP request, payment, and output contract audit with SARIF. Never signs or sends payment.");
+  assert.equal(description[1].length < 125, true, "Marketplace description must be less than 125 characters");
   const allowedIcons = new Set(["shield", "lock", "check-circle", "alert-triangle", "eye"]);
   const allowedColors = new Set(["white", "black", "yellow", "blue", "green", "orange", "red", "purple", "gray-dark"]);
   const icon = source.match(/^branding:\n  icon: ([a-z0-9-]+)\n  color: ([a-z0-9-]+)\n/m);

@@ -1,5 +1,5 @@
 name: agent-payment-integrity
-description: Credential-free audit of exact x402 and MPP request, payment, and output contracts. Writes SARIF. Never signs or sends a payment.
+description: Credential-free x402 and MPP request, payment, and output contract audit with SARIF. Never signs or sends payment.
 author: epistemedeus
 inputs:
   origin:

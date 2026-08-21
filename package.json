@@ -1,6 +1,6 @@
 {
   "name": "agent-payment-integrity",
-  "version": "0.1.0-candidate.8",
+  "version": "0.1.0-candidate.9",
   "private": true,
   "description": "Credential-free CI checks for x402 and MPP seller declarations and live payment challenges",
   "keywords": [

@@ -7,7 +7,7 @@ license: MIT
 # Agent payment integrity
 
 Teach seller CI how to audit one exact x402 or MPP route without a wallet.
-This skill matches agent-payment-integrity 0.1.0-candidate.8.
+This skill matches agent-payment-integrity 0.1.0-candidate.9.
 
 Seller OpenAPI, Bazaar, and purchase-evidence documents are declarations. A
 live unpaid GET 402 can corroborate those declarations for one URL at one
@@ -77,8 +77,9 @@ intentional.
 ## GitHub-native pin
 
 A GitHub seller repository can pin the composite action instead of cloning
-this package into application dependencies. `v0.1.0-candidate.8` is the
-first tag that contains the Action. Marketplace or tag syntax is a
+this package into application dependencies. `v0.1.0-candidate.8` is the first
+tag that contains the Action, and `v0.1.0-candidate.9` is the first tag whose
+metadata passes Marketplace publication. Marketplace or tag syntax is a
 convenience. Use a full 40-character commit SHA. Do not use `@main`.
 
 ```yaml

@@ -19,7 +19,7 @@ import {
 } from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
-export const TOOL_VERSION = "0.1.0-candidate.8";
+export const TOOL_VERSION = "0.1.0-candidate.9";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;

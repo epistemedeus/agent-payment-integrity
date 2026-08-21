@@ -630,6 +630,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.8");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.9");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

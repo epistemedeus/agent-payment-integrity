@@ -120,8 +120,9 @@ jobs:
 ```
 
 `v0.1.0-candidate.8` is the first tag that contains this Action. Earlier
-candidate tags do not. GitHub Marketplace or tag syntax such as
-`epistemedeus/agent-payment-integrity@v0.1.0-candidate.8` is a convenience
+candidate tags do not. `v0.1.0-candidate.9` is the first tag whose metadata
+passes GitHub Marketplace publication. Marketplace or tag syntax such as
+`epistemedeus/agent-payment-integrity@v0.1.0-candidate.9` is a convenience
 for discovery and copy-paste. Pin the full commit SHA of that tagged tree
 for production CI. Do not use `@main`. A passing run is seller-declared
 unpaid contract evidence. It is not runtime, settlement, delivery, demand,

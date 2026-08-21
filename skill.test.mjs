@@ -119,7 +119,7 @@ test("no-payment: skill and default CLI never sign or send a payment", () => {
 
 test("clean-install: packed package ships the skill and a consumer can read it", { timeout: 120_000 }, () => {
   const { listing, installedSkill, filename } = packedSkillFromTarball();
-  assert.match(filename, /^agent-payment-integrity-0\.1\.0-candidate\.8\.tgz$/);
+  assert.match(filename, /^agent-payment-integrity-0\.1\.0-candidate\.9\.tgz$/);
   assert.match(listing, /package\/skills\/agent-payment-integrity\/SKILL\.md/);
   assert.doesNotMatch(listing, /package\/skill\.test\.mjs/);
   assert.equal(installedSkill, skill);

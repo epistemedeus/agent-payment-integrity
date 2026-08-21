@@ -1,5 +1,5 @@
 # Copy into a seller repository. Pin the full commit SHA of the
-# v0.1.0-candidate.8 tree, the first tag that contains this Action.
+# v0.1.0-candidate.9 tree, the first Marketplace-published Action tag.
 # Marketplace or tag syntax is a convenience. Do not use @main, a
 # floating tag, npm, or pull_request_target. A passing run is
 # seller-declared unpaid contract evidence, not runtime, settlement,
