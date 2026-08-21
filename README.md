@@ -171,9 +171,9 @@ than copying clone steps into application CI.
 This is a reference candidate, not a catalog-indexing guarantee or paid-service
 quality score. An unpaid challenge cannot prove settlement or paid delivery.
 The package will remain unpublished on npm until an external integration or
-design review establishes that the interface is worth stabilizing. A GitHub
-Marketplace listing, if created after a separate approval, is a discovery
-convenience. It does not change this candidate boundary, publish the package
+design review establishes that the interface is worth stabilizing. The public
+GitHub Marketplace listing is a discovery convenience. It does not change this
+candidate boundary, publish the package
 to npm, or convert a passing Action run into runtime, settlement, delivery,
 demand, or adoption proof.
 
