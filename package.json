@@ -41,7 +41,7 @@
     "prepack": "npm test"
   },
   "dependencies": {
-    "@x402/extensions": "2.16.0",
+    "@x402/extensions": "2.22.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "ipaddr.js": "2.5.0",
