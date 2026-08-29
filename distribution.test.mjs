@@ -71,7 +71,7 @@ function packedListing() {
 
 test("packaging: skill ships in npm; action stays git-consumed", { timeout: 60_000 }, () => {
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
-  assert.equal(packageJson.version, "0.1.0-candidate.11");
+  assert.equal(packageJson.version, "0.1.0-candidate.12");
   assert.equal(TOOL_VERSION, packageJson.version);
   assert.equal(lock.version, packageJson.version);
   assert.equal(lock.packages[""].version, packageJson.version);
@@ -85,7 +85,7 @@ test("packaging: skill ships in npm; action stays git-consumed", { timeout: 60_0
 
   const { filename, listing, dir } = packedListing();
   try {
-    assert.match(filename, /^agent-payment-integrity-0\.1\.0-candidate\.11\.tgz$/);
+    assert.match(filename, /^agent-payment-integrity-0\.1\.0-candidate\.12\.tgz$/);
     for (const path of PACKED) {
       assert.match(listing, new RegExp(`^${path}$`, "m"), path);
     }

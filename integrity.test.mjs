@@ -74,10 +74,10 @@ function discoveryExtension({ invalidOutput = false, legacyOutputSchema = false 
   return result;
 }
 
-function x402Header(target, extension = discoveryExtension(), overrides = {}) {
+function x402Header(target, extension = discoveryExtension(), overrides = {}, resourceOverrides = {}) {
   return Buffer.from(JSON.stringify({
     x402Version: 2,
-    resource: { url: target, description: "fixture", mimeType: "application/json" },
+    resource: { url: target, description: "fixture", mimeType: "application/json", ...resourceOverrides },
     accepts: [{
       scheme: "exact",
       network: "eip155:8453",
@@ -172,11 +172,11 @@ function postDocuments({ requireAttributes = false } = {}) {
   };
 }
 
-function requestFixture({ extension, xOverrides, mppOverrides, resourceUrl, link } = {}) {
+function requestFixture({ extension, xOverrides, mppOverrides, resourceUrl, resourceOverrides, link } = {}) {
   return async (url) => ({
     status: 402,
     headers: {
-      "payment-required": x402Header(resourceUrl || url.toString(), extension || discoveryExtension(), xOverrides),
+      "payment-required": x402Header(resourceUrl || url.toString(), extension || discoveryExtension(), xOverrides, resourceOverrides),
       "www-authenticate": mppHeader(mppOverrides),
       ...(link ? { link } : {}),
     },
@@ -250,6 +250,25 @@ test("parses public x402 and MPP economics without retaining opaque state", () =
   assert.equal(x402.payload.resource.url, target);
   assert.equal(mpp.offers[0].recipient, RECIPIENT.toLowerCase());
   assert.equal(mpp.offers[0].network, "eip155:8453");
+});
+
+test("rejects protocol-invalid x402 resource metadata before economics promotion", async () => {
+  const tags = ["generic", "common", "shared", "tool", "api", "overflow"];
+  const target = "https://example.com/read?url=https%3A%2F%2Fexample.com";
+  const parsed = parseX402Challenge(x402Header(target, discoveryExtension(), {}, { tags }));
+  assert.equal(parsed.errorCode, "x402_payment_required_schema_invalid");
+  assert.equal(parsed.accepts, undefined);
+
+  const report = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requestImpl: requestFixture({ resourceOverrides: { tags } }),
+  });
+  assert.equal(report.ok, false);
+  assert.ok(report.routes[0].findings.includes("x402_payment_required_schema_invalid"));
+  assert.equal(report.routes[0].protocols.includes("x402"), false);
+  assert.equal(report.safety.paymentSigned, false);
+  assert.equal(report.safety.paymentSent, false);
 });
 
 test("parses a frozen Base, Solana, Stellar, and Algorand x402 v2 challenge by network family", () => {
@@ -343,7 +362,8 @@ test("fails the entire mixed x402 challenge when one network-family identifier i
     const challenge = structuredClone(FROZEN_MULTICHAIN_X402_V2_CHALLENGE);
     mutate(challenge.accepts[index]);
     const parsed = parseX402Challenge(Buffer.from(JSON.stringify(challenge)).toString("base64url"));
-    assert.match(parsed.error, /invalid x402 economics/, name);
+    assert.match(parsed.error, /official protocol schema|invalid x402 economics/, name);
+    assert.ok(["x402_payment_required_schema_invalid", "x402_challenge_invalid"].includes(parsed.errorCode), name);
     assert.equal(parsed.accepts, undefined, name);
   }
 });
@@ -773,6 +793,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.11");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.12");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

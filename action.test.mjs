@@ -206,7 +206,7 @@ test("harmless fixtures are unpaid, unsigned, and produce SARIF without raw head
   const sarif = toSarif(failing);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "seller_response_contract_absent");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.11");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.12");
 });
 
 test("runAction fail-closes on invalid origin, writes SARIF, and does not spawn the CLI", async () => {
@@ -330,7 +330,7 @@ test("requestPinned remains GET-only and inputErrorSarif names this candidate", 
   assert.match(requestPinned, /method: "GET"/);
   assert.equal(requestPinned.includes("POST"), false);
   const sarif = inputErrorSarif("origin is required");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.11");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.12");
   assert.equal(sarif.runs[0].results[0].ruleId, "action_input_invalid");
 });
 

@@ -9,6 +9,7 @@ import {
   validateDiscoveryExtension,
   validateDiscoveryExtensionSpec,
 } from "@x402/extensions/bazaar";
+import { parsePaymentRequired, ResourceInfoSchema } from "@x402/core/schemas";
 import {
   PURCHASE_EVIDENCE_RELATION,
   SCHEMAS as POLICY_SCHEMAS,
@@ -19,7 +20,7 @@ import {
 } from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
-export const TOOL_VERSION = "0.1.0-candidate.11";
+export const TOOL_VERSION = "0.1.0-candidate.12";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -334,6 +335,20 @@ export function parseX402Challenge(header) {
     if (payload?.x402Version !== 2 || !Array.isArray(payload.accepts) || payload.accepts.length === 0) {
       throw new Error("unsupported x402 challenge");
     }
+    const paymentRequired = parsePaymentRequired(payload);
+    if (!paymentRequired.success) {
+      return {
+        error: "x402 PaymentRequired failed the official protocol schema",
+        errorCode: "x402_payment_required_schema_invalid",
+      };
+    }
+    const resource = ResourceInfoSchema.safeParse(payload.resource);
+    if (!resource.success) {
+      return {
+        error: "x402 resource metadata failed the official protocol schema",
+        errorCode: "x402_resource_schema_invalid",
+      };
+    }
     const accepts = payload.accepts.map((offer) => normalizeEconomics(
       { ...offer, method: "x402", intent: "exact" },
       { requireNetworkReference: true },
@@ -341,7 +356,10 @@ export function parseX402Challenge(header) {
     if (accepts.some((offer) => !validEconomics(offer))) throw new Error("invalid x402 economics");
     return { payload, accepts };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "malformed x402 challenge" };
+    return {
+      error: error instanceof Error ? error.message : "malformed x402 challenge",
+      errorCode: "x402_challenge_invalid",
+    };
   }
 }
 
@@ -822,7 +840,7 @@ export async function auditIntegrity({
     const protocols = [];
     let bazaarObservation = { present: false, valid: null };
 
-    if (x402.error) findings.push("x402_challenge_invalid");
+    if (x402.error) findings.push(x402.errorCode || "x402_challenge_invalid");
     else {
       protocols.push("x402");
       const resourceUrl = x402.payload?.resource?.url;
