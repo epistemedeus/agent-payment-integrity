@@ -7,7 +7,7 @@ license: MIT
 # Agent payment integrity
 
 Teach seller CI how to audit one exact x402 or MPP route without a wallet.
-This skill matches agent-payment-integrity 0.1.0-candidate.10.
+This skill matches agent-payment-integrity 0.1.0-candidate.11.
 
 Seller OpenAPI, Bazaar, and purchase-evidence documents are declarations. A
 live unpaid GET 402 can corroborate those declarations for one URL at one

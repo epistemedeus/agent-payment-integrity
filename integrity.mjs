@@ -19,7 +19,7 @@ import {
 } from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
-export const TOOL_VERSION = "0.1.0-candidate.10";
+export const TOOL_VERSION = "0.1.0-candidate.11";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
@@ -55,13 +55,15 @@ function protocolIdentifier(value) {
   return value;
 }
 
-function normalizeNetwork(value) {
+function normalizeNetwork(value, { requireReference = false } = {}) {
   if (typeof value !== "string") return null;
   const separator = value.indexOf(":");
   const namespace = separator === -1 ? value : value.slice(0, separator);
   if (!NETWORK_NAMESPACE.test(namespace)) return null;
   const normalizedNamespace = namespace.toLowerCase();
-  if (separator === -1) return { namespace: normalizedNamespace, value: normalizedNamespace };
+  if (separator === -1) {
+    return requireReference ? null : { namespace: normalizedNamespace, value: normalizedNamespace };
+  }
   const reference = value.slice(separator + 1);
   if (!protocolIdentifier(reference)) return null;
   return { namespace: normalizedNamespace, value: `${normalizedNamespace}:${reference}` };
@@ -297,9 +299,12 @@ function decodeJsonBase64(value) {
   return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
 }
 
-function normalizeEconomics({ amount, currency, asset, recipient, payTo, network, decimals, method, intent, scheme }) {
+function normalizeEconomics(
+  { amount, currency, asset, recipient, payTo, network, decimals, method, intent, scheme },
+  { requireNetworkReference = false } = {},
+) {
   const atomic = String(amount ?? "");
-  const normalizedNetwork = normalizeNetwork(network);
+  const normalizedNetwork = normalizeNetwork(network, { requireReference: requireNetworkReference });
   const normalizeIdentifier = normalizedNetwork?.namespace === "eip155" ? lowerAddress : protocolIdentifier;
   return {
     amountAtomic: DECIMAL_INTEGER.test(atomic) ? atomic : null,
@@ -329,7 +334,10 @@ export function parseX402Challenge(header) {
     if (payload?.x402Version !== 2 || !Array.isArray(payload.accepts) || payload.accepts.length === 0) {
       throw new Error("unsupported x402 challenge");
     }
-    const accepts = payload.accepts.map((offer) => normalizeEconomics({ ...offer, method: "x402", intent: "exact" }));
+    const accepts = payload.accepts.map((offer) => normalizeEconomics(
+      { ...offer, method: "x402", intent: "exact" },
+      { requireNetworkReference: true },
+    ));
     if (accepts.some((offer) => !validEconomics(offer))) throw new Error("invalid x402 economics");
     return { payload, accepts };
   } catch (error) {

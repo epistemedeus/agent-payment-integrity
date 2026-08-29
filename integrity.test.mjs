@@ -336,6 +336,8 @@ test("fails the entire mixed x402 challenge when one network-family identifier i
     ["trailing newline identifier", 11, (offer) => { offer.asset = "USDC\n"; }],
     ["oversized identifier", 12, (offer) => { offer.asset = "A".repeat(257); }],
     ["malformed EVM recipient", 0, (offer) => { offer.payTo = "0x1234"; }],
+    ["namespace-only EVM network", 0, (offer) => { offer.network = "eip155"; }],
+    ["namespace-only Solana network", 10, (offer) => { offer.network = "solana"; }],
   ];
   for (const [name, index, mutate] of cases) {
     const challenge = structuredClone(FROZEN_MULTICHAIN_X402_V2_CHALLENGE);
@@ -771,6 +773,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.10");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.11");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });
