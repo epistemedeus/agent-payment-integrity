@@ -20,6 +20,35 @@ import {
 
 const ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const RECIPIENT = "0x1111111111111111111111111111111111111111";
+const MULTICHAIN_RESOURCE = "https://agent402.tools/api/unemployment-rate";
+const MULTICHAIN_BASE_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const MULTICHAIN_BASE_RECIPIENT = "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0";
+const FROZEN_MULTICHAIN_X402_V2_CHALLENGE = {
+  x402Version: 2,
+  resource: {
+    url: MULTICHAIN_RESOURCE,
+    description: "Latest US unemployment rate plus a trailing N-month series for trend.",
+    mimeType: "application/json",
+  },
+  accepts: [
+    { scheme: "exact", network: "eip155:8453", amount: "10000", asset: MULTICHAIN_BASE_ASSET, payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:137", amount: "10000", asset: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:42161", amount: "10000", asset: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:143", amount: "10000", asset: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:43114", amount: "10000", asset: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:1329", amount: "10000", asset: "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:10", amount: "11000", asset: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:4663", amount: "10000", asset: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "eip155:42220", amount: "10000", asset: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C", payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "upto", network: "eip155:8453", amount: "10000", asset: MULTICHAIN_BASE_ASSET, payTo: MULTICHAIN_BASE_RECIPIENT, maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", amount: "10000", asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", payTo: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "stellar:pubnet", amount: "100000", asset: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75", payTo: "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL", maxTimeoutSeconds: 300 },
+    { scheme: "exact", network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", amount: "10000", asset: "31566704", payTo: "C7IIHG7SPLPZ5H7ZT6HW3UV2OQMQQE6Y2HBNGZXSLRJULE42BEE2OY2XIE", maxTimeoutSeconds: 300 },
+  ],
+};
+const FROZEN_MULTICHAIN_X402_V2_HEADER = Buffer.from(
+  JSON.stringify(FROZEN_MULTICHAIN_X402_V2_CHALLENGE),
+).toString("base64url");
 
 function discoveryExtension({ invalidOutput = false, legacyOutputSchema = false } = {}) {
   const outputSchema = {
@@ -62,7 +91,7 @@ function x402Header(target, extension = discoveryExtension(), overrides = {}) {
   })).toString("base64url");
 }
 
-function mppHeader(overrides = {}) {
+function mppHeader(overrides = {}, realm = "example.com") {
   const request = Buffer.from(JSON.stringify({
     amount: "50000",
     currency: ASSET,
@@ -70,7 +99,7 @@ function mppHeader(overrides = {}) {
     methodDetails: { chainId: 8453, decimals: 6, credentialTypes: ["authorization"] },
     ...overrides,
   })).toString("base64url");
-  return `Payment id="fixture", realm="example.com", method="evm", intent="charge", request="${request}", expires="2099-08-10T00:00:00.000Z"`;
+  return `Payment id="fixture", realm="${realm}", method="evm", intent="charge", request="${request}", expires="2099-08-10T00:00:00.000Z"`;
 }
 
 function documents() {
@@ -94,6 +123,24 @@ function documents() {
       },
     },
   };
+}
+
+function multichainDocuments() {
+  const result = documents();
+  const x402Operation = result.x402Document.paths["/read"].get;
+  const mppOperation = result.mppDocument.paths["/read"].get;
+  x402Operation.parameters = [];
+  mppOperation.parameters = [];
+  result.x402Document.paths = { "/api/unemployment-rate": { get: x402Operation } };
+  result.mppDocument.paths = { "/api/unemployment-rate": { get: mppOperation } };
+  for (const offer of mppOperation["x-payment-info"].offers) {
+    offer.amount = "10000";
+    offer.currency = MULTICHAIN_BASE_ASSET;
+    offer.network = "eip155:8453";
+    if (offer.method === "evm") offer.recipient = MULTICHAIN_BASE_RECIPIENT;
+    if (offer.method === "x402") offer.payTo = MULTICHAIN_BASE_RECIPIENT;
+  }
+  return result;
 }
 
 function postDocuments({ requireAttributes = false } = {}) {
@@ -203,6 +250,100 @@ test("parses public x402 and MPP economics without retaining opaque state", () =
   assert.equal(x402.payload.resource.url, target);
   assert.equal(mpp.offers[0].recipient, RECIPIENT.toLowerCase());
   assert.equal(mpp.offers[0].network, "eip155:8453");
+});
+
+test("parses a frozen Base, Solana, Stellar, and Algorand x402 v2 challenge by network family", () => {
+  const x402 = parseX402Challenge(FROZEN_MULTICHAIN_X402_V2_HEADER);
+  assert.equal(x402.error, undefined);
+  assert.equal(x402.accepts.length, 13);
+
+  for (let index = 0; index < 10; index += 1) {
+    assert.equal(x402.accepts[index].asset, FROZEN_MULTICHAIN_X402_V2_CHALLENGE.accepts[index].asset.toLowerCase());
+    assert.equal(x402.accepts[index].recipient, FROZEN_MULTICHAIN_X402_V2_CHALLENGE.accepts[index].payTo.toLowerCase());
+  }
+  assert.deepEqual(x402.accepts.slice(10).map(({ network, asset, recipient }) => ({ network, asset, recipient })), [
+    {
+      network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      recipient: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg",
+    },
+    {
+      network: "stellar:pubnet",
+      asset: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      recipient: "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL",
+    },
+    {
+      network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+      asset: "31566704",
+      recipient: "C7IIHG7SPLPZ5H7ZT6HW3UV2OQMQQE6Y2HBNGZXSLRJULE42BEE2OY2XIE",
+    },
+  ]);
+
+  const namespaceCase = structuredClone(FROZEN_MULTICHAIN_X402_V2_CHALLENGE);
+  namespaceCase.accepts[10].network = "SoLaNa:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+  namespaceCase.accepts[0].network = "EIP155:8453";
+  const normalized = parseX402Challenge(Buffer.from(JSON.stringify(namespaceCase)).toString("base64url"));
+  assert.equal(normalized.accepts[0].network, "eip155:8453");
+  assert.equal(normalized.accepts[10].network, "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp");
+});
+
+test("audits the frozen multichain PAYMENT-REQUIRED header with a zero-byte body", async () => {
+  let requests = 0;
+  const report = await auditIntegrity({
+    origin: "https://agent402.tools",
+    ...multichainDocuments(),
+    requestImpl: async (url) => {
+      requests += 1;
+      assert.equal(url.toString(), MULTICHAIN_RESOURCE);
+      return {
+        status: 402,
+        headers: {
+          "payment-required": FROZEN_MULTICHAIN_X402_V2_HEADER,
+          "www-authenticate": mppHeader({
+            amount: "10000",
+            currency: MULTICHAIN_BASE_ASSET,
+            recipient: MULTICHAIN_BASE_RECIPIENT,
+          }, "agent402.tools"),
+        },
+        body: Buffer.alloc(0),
+      };
+    },
+  });
+  assert.equal(requests, 1);
+  assert.equal(report.ok, true);
+  assert.deepEqual(report.routes[0].protocols, ["mpp", "x402"]);
+  assert.equal(report.routes[0].findings.includes("x402_challenge_invalid"), false);
+  assert.deepEqual(report.routes[0].economics.x402, {
+    amountAtomic: "10000",
+    asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    network: "eip155:8453",
+    recipient: "0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0",
+    decimals: null,
+    method: "x402",
+    intent: "exact",
+    scheme: "exact",
+  });
+  assert.equal(report.safety.credentialsUsed, false);
+  assert.equal(report.safety.paymentSigned, false);
+  assert.equal(report.safety.paymentSent, false);
+});
+
+test("fails the entire mixed x402 challenge when one network-family identifier is malformed", () => {
+  const cases = [
+    ["missing non-EVM recipient", 10, (offer) => { delete offer.payTo; }],
+    ["whitespace identifier", 10, (offer) => { offer.asset = "EPjF Wdd5"; }],
+    ["control identifier", 11, (offer) => { offer.asset = "USDC\u0000"; }],
+    ["trailing newline identifier", 11, (offer) => { offer.asset = "USDC\n"; }],
+    ["oversized identifier", 12, (offer) => { offer.asset = "A".repeat(257); }],
+    ["malformed EVM recipient", 0, (offer) => { offer.payTo = "0x1234"; }],
+  ];
+  for (const [name, index, mutate] of cases) {
+    const challenge = structuredClone(FROZEN_MULTICHAIN_X402_V2_CHALLENGE);
+    mutate(challenge.accepts[index]);
+    const parsed = parseX402Challenge(Buffer.from(JSON.stringify(challenge)).toString("base64url"));
+    assert.match(parsed.error, /invalid x402 economics/, name);
+    assert.equal(parsed.accepts, undefined, name);
+  }
 });
 
 test("passes a dual-rail declaration bound to the full runtime request", async () => {
@@ -630,6 +771,6 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.9");
+  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.10");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });

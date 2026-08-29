@@ -19,12 +19,15 @@ import {
 } from "agent-payment-policy";
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
-export const TOOL_VERSION = "0.1.0-candidate.9";
+export const TOOL_VERSION = "0.1.0-candidate.10";
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;
 const DECIMAL_INTEGER = /^(?:0|[1-9][0-9]{0,77})$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const NETWORK_NAMESPACE = /^[A-Za-z][A-Za-z0-9-]{0,31}$/;
+const NON_PRINTABLE_PROTOCOL_IDENTIFIER = /[^\x21-\x7e]/;
+const MAX_PROTOCOL_IDENTIFIER_BYTES = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 2_000_000;
 const DEFAULT_MAX_ROUTES = 64;
@@ -38,6 +41,30 @@ function isPlainObject(value) {
 function lowerAddress(value) {
   if (typeof value !== "string" || !EVM_ADDRESS.test(value) || /^0x0{40}$/i.test(value)) return null;
   return value.toLowerCase();
+}
+
+function protocolIdentifier(value) {
+  if (
+    typeof value !== "string"
+    || value.length === 0
+    || Buffer.byteLength(value, "utf8") > MAX_PROTOCOL_IDENTIFIER_BYTES
+    || NON_PRINTABLE_PROTOCOL_IDENTIFIER.test(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function normalizeNetwork(value) {
+  if (typeof value !== "string") return null;
+  const separator = value.indexOf(":");
+  const namespace = separator === -1 ? value : value.slice(0, separator);
+  if (!NETWORK_NAMESPACE.test(namespace)) return null;
+  const normalizedNamespace = namespace.toLowerCase();
+  if (separator === -1) return { namespace: normalizedNamespace, value: normalizedNamespace };
+  const reference = value.slice(separator + 1);
+  if (!protocolIdentifier(reference)) return null;
+  return { namespace: normalizedNamespace, value: `${normalizedNamespace}:${reference}` };
 }
 
 function publicIpv4(address) {
@@ -272,13 +299,13 @@ function decodeJsonBase64(value) {
 
 function normalizeEconomics({ amount, currency, asset, recipient, payTo, network, decimals, method, intent, scheme }) {
   const atomic = String(amount ?? "");
-  const normalizedAsset = lowerAddress(currency ?? asset) || String(currency ?? asset ?? "").toLowerCase() || null;
-  const normalizedRecipient = lowerAddress(recipient ?? payTo);
+  const normalizedNetwork = normalizeNetwork(network);
+  const normalizeIdentifier = normalizedNetwork?.namespace === "eip155" ? lowerAddress : protocolIdentifier;
   return {
     amountAtomic: DECIMAL_INTEGER.test(atomic) ? atomic : null,
-    asset: normalizedAsset,
-    network: typeof network === "string" ? network.toLowerCase() : null,
-    recipient: normalizedRecipient,
+    asset: normalizeIdentifier(currency ?? asset),
+    network: normalizedNetwork?.value ?? null,
+    recipient: normalizeIdentifier(recipient ?? payTo),
     decimals: Number.isInteger(Number(decimals)) ? Number(decimals) : null,
     method: typeof method === "string" ? method.toLowerCase() : null,
     intent: typeof intent === "string" ? intent.toLowerCase() : null,
