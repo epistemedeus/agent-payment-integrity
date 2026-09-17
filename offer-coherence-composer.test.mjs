@@ -208,3 +208,77 @@ test("CLI refuses pay and POST live probes", () => {
   assert.equal(post.status, 1);
   assert.match(post.stderr, /does not transmit seller POST/);
 });
+
+test("missing catalog example price fails closed instead of matching the 402 to itself", async () => {
+  const observation = JSON.parse(readFileSync(join(root, "fixtures/missing-catalog-example-price.json"), "utf8"));
+  const report = await composeFromFixture(observation);
+  assert.equal(report.ok, false);
+  assert.equal(report.examplePrice.exampleAtomic, null);
+  assert.equal(report.examplePrice.exampleSource, null);
+  assert.equal(report.examplePrice.runtimeAtomic, "50000");
+  assert.equal(report.examplePrice.matched, null);
+  assert.equal(report.offerCoherence, null);
+  assert.ok(report.findings.includes("example_price_missing"));
+  assert.equal(report.findings.some((finding) => finding.includes("runtime_accepts")), false);
+  const cli = composerCli(["--fixture", "fixtures/missing-catalog-example-price.json"]);
+  assert.equal(cli.status, 1, cli.stderr);
+  assert.match(cli.stdout, /example_price_missing/);
+  assert.doesNotMatch(cli.stdout, /"exampleSource": "runtime_accepts"/);
+});
+
+test("OpenAPI x402 network/asset drift fails closed and is not copied from the 402", async () => {
+  const network = coherentObservation();
+  network.runtime.challenge.accepts[0].network = "eip155:1";
+  const networkReport = await composeFromFixture(network);
+  assert.equal(networkReport.ok, false);
+  assert.equal(networkReport.examplePrice.matched, true);
+  assert.equal(networkReport.offerCoherence?.decision, "drifted");
+  assert.ok(networkReport.offerCoherence.drifted.includes("network"));
+  assert.ok(networkReport.findings.some((finding) => finding.startsWith("offer_coherence_drifted") && finding.includes("network")));
+
+  const asset = coherentObservation();
+  asset.runtime.challenge.accepts[0].asset = "0x2222222222222222222222222222222222222222";
+  const assetReport = await composeFromFixture(asset);
+  assert.equal(assetReport.ok, false);
+  assert.ok(assetReport.offerCoherence.drifted.includes("asset"));
+  assert.ok(assetReport.findings.some((finding) => finding.includes("asset")));
+});
+
+test("OpenAPI path-level and $ref parameters count as public input names", () => {
+  const document = {
+    openapi: "3.1.0",
+    paths: {
+      "/extract": {
+        parameters: [{ $ref: "#/components/parameters/url" }],
+        get: {
+          requestBody: { $ref: "#/components/requestBodies/Extract" },
+          responses: { 200: { description: "ok" } },
+        },
+      },
+    },
+    components: {
+      parameters: {
+        url: {
+          name: "url",
+          in: "query",
+          required: true,
+          schema: { type: "string" },
+        },
+      },
+      requestBodies: {
+        Extract: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["intent"],
+                properties: { intent: { type: "string" } },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+  assert.deepEqual(openApiInputNames(document, "/extract", "GET"), ["intent", "url"]);
+});

@@ -117,16 +117,55 @@ export function operationAt(document, route, method) {
   return isPlainObject(item) ? item[String(method).toLowerCase()] : null;
 }
 
+function resolveParameter(document, parameter) {
+  if (!isPlainObject(parameter)) return null;
+  if (typeof parameter.$ref === "string" && parameter.$ref.startsWith("#/")) {
+    const resolved = resolveLocalRef(document, parameter);
+    return isPlainObject(resolved) ? resolved : null;
+  }
+  return parameter;
+}
+
+function operationParameters(document, route, method) {
+  const item = document?.paths?.[route];
+  const operation = isPlainObject(item) ? item[String(method).toLowerCase()] : null;
+  const merged = new Map();
+  for (const parameter of [...asArray(item?.parameters), ...asArray(operation?.parameters)]) {
+    const resolved = resolveParameter(document, parameter);
+    if (!resolved || typeof resolved.name !== "string") continue;
+    merged.set(`${resolved.in}:${resolved.name}`, resolved);
+  }
+  return [...merged.values()];
+}
+
+function resolvedRequestBody(document, operation) {
+  if (!isPlainObject(operation?.requestBody)) return null;
+  const resolved = resolveLocalRef(document, operation.requestBody);
+  return isPlainObject(resolved) ? resolved : null;
+}
+
+function catalogX402Terms(document, route, method) {
+  const operation = operationAt(document, route, method);
+  const paymentInfo = isPlainObject(operation?.["x-payment-info"]) ? operation["x-payment-info"] : {};
+  const x402 = asArray(paymentInfo.protocols)
+    .map((item) => (isPlainObject(item) ? item.x402 : null))
+    .find((item) => isPlainObject(item)) || {};
+  const network = typeof x402.network === "string" && x402.network ? x402.network : null;
+  const asset = typeof x402.asset === "string" && x402.asset ? x402.asset : null;
+  const recipient = [x402.payTo, x402.recipient, paymentInfo.payTo, paymentInfo.recipient]
+    .find((value) => typeof value === "string" && value);
+  return { network, asset, recipient: recipient || null };
+}
+
 export function openApiInputNames(document, route, method) {
   const operation = operationAt(document, route, method);
   if (!isPlainObject(operation)) return [];
   const names = [];
-  for (const parameter of asArray(operation.parameters)) {
+  for (const parameter of operationParameters(document, route, method)) {
     if (parameter?.required !== true) continue;
     if (parameter.in === "query" || parameter.in === "path") names.push(String(parameter.name || ""));
   }
-  const body = operation.requestBody?.content;
-  const json = jsonMedia(body)?.media;
+  const json = jsonMedia(resolvedRequestBody(document, operation)?.content)?.media;
   if (json?.schema) {
     const resolved = resolveLocalRef(document, json.schema);
     names.push(...intersectRequiredFields(objectBranches(resolved)));
@@ -227,7 +266,7 @@ export function decimalUsdToAtomic(value, decimals = USDC_DECIMALS) {
   return String(whole * (10n ** BigInt(decimals)) + frac);
 }
 
-function examplePriceAtomic(document, route, method, bazaar, challenge) {
+function examplePriceAtomic(document, route, method, bazaar) {
   const fromBazaar = bazaar?.info?.output?.example?.meta?.cost_usdc
     ?? bazaar?.info?.output?.example?.cost_usdc
     ?? bazaar?.info?.output?.example?.costDollars?.total;
@@ -253,8 +292,6 @@ function examplePriceAtomic(document, route, method, bazaar, challenge) {
       : decimalUsdToAtomic(fromOpenApi);
     if (atomic !== null) return { atomic, source: "openapi_example" };
   }
-  const challengeAmount = challenge?.accepts?.[0]?.amount;
-  if (challengeAmount) return { atomic: String(challengeAmount), source: "runtime_accepts" };
   return { atomic: null, source: null };
 }
 
@@ -374,7 +411,11 @@ function collectFindings({
     findings.push(`openapi_required_path_missing_from_bazaar:${path}`);
   }
   if (successPaths?.bazaarWrapperOnly) findings.push("bazaar_output_wrapper_only");
-  if (examplePrice && examplePrice.matched === false) {
+  if (method === "GET") {
+    if (!examplePrice?.exampleAtomic) findings.push("example_price_missing");
+    else if (!examplePrice?.runtimeAtomic) findings.push("runtime_amount_missing");
+    else if (examplePrice.matched === false) findings.push("example_price_runtime_amount_mismatch");
+  } else if (examplePrice && examplePrice.matched === false) {
     findings.push("example_price_runtime_amount_mismatch");
   }
   if (requestBinding && requestBinding.matched === false) {
@@ -453,7 +494,7 @@ export async function composeOfferHandlerCoherence(observation, {
       queryKeys: [...request.queryKeys],
       bindingDigest: request.bindingDigest,
       resourceBindingDigest: resource?.bindingDigest ?? null,
-      matched: resource ? resource.bindingDigest === request.bindingDigest : null,
+      matched: resource ? resource.bindingDigest === request.bindingDigest : false,
       canonicalGetBytes: observation.runtime?.challenge
         ? sha256Bytes(Buffer.from(JSON.stringify(observation.runtime.challenge)))
         : null,
@@ -462,7 +503,7 @@ export async function composeOfferHandlerCoherence(observation, {
 
   const challenge = observation.runtime?.challenge || null;
   const runtimeAmount = challenge?.accepts?.[0]?.amount ? String(challenge.accepts[0].amount) : null;
-  const example = examplePriceAtomic(document, route, method, bazaar, challenge);
+  const example = examplePriceAtomic(document, route, method, bazaar);
   const examplePrice = {
     exampleAtomic: example.atomic,
     exampleSource: example.source,
@@ -474,6 +515,7 @@ export async function composeOfferHandlerCoherence(observation, {
   if (method === "GET" && runtimeAmount && example.atomic) {
     const accept = challenge.accepts.find((item) => item.scheme === "exact") || challenge.accepts[0];
     const expiresAt = x402ExpiresAt(challenge, observation.runtime?.headers, now);
+    const catalogTerms = catalogX402Terms(document, route, method);
     offerCoherence = evaluateOfferCoherence({
       schemaVersion: POLICY_SCHEMAS.offerCoherenceObservation,
       catalog: {
@@ -482,9 +524,9 @@ export async function composeOfferHandlerCoherence(observation, {
         method: "GET",
         url,
         amountAtomic: example.atomic,
-        network: accept.network,
-        asset: accept.asset,
-        recipient: accept.payTo || accept.recipient,
+        ...(catalogTerms.network ? { network: catalogTerms.network } : {}),
+        ...(catalogTerms.asset ? { asset: catalogTerms.asset } : {}),
+        ...(catalogTerms.recipient ? { recipient: catalogTerms.recipient } : {}),
         expiresAt,
       },
       runtime: {
