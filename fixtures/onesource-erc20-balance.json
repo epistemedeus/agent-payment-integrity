@@ -1,0 +1,649 @@
+{
+  "schemaVersion": "agent-payment-integrity.offer-handler-coherence-observation.v1",
+  "id": "onesource-erc20-balance-20260830",
+  "seller": "OneSource",
+  "source": {
+    "kind": "sds_seller_repair_brief",
+    "briefId": "onesource-erc20-balance-20260830",
+    "file": "client/src/data/sellerRepairBriefs.ts",
+    "repository": "https://github.com/epistemedeus/samedaydesk"
+  },
+  "origin": "https://api.onesource.io",
+  "method": "GET",
+  "route": "/api/chain/erc20-balance",
+  "url": "https://api.onesource.io/api/chain/erc20-balance",
+  "expectedFailure": [
+    "openapi_bazaar_input_name_mismatch",
+    "example_price_runtime_amount_mismatch",
+    "offer_coherence_drifted"
+  ],
+  "openapi": {
+    "openapi": "3.1.0",
+    "info": {
+      "title": "OneSource - Blockchain Data API for AI Agents",
+      "version": "1.0.0"
+    },
+    "paths": {
+      "/api/chain/erc20-balance": {
+        "get": {
+          "description": "Fetches an account's balance of a specific ERC20 token by eth_call-ing balanceOf(address). Returns the raw balance plus the token's decimals and symbol for convenience. Works for any ERC20 contract. Optional fields that could not be fetched for a response are listed in 'warnings'; a field missing for that reason is unknown for this response rather than unsupported by the contract.",
+          "operationId": "chainErc20Balance",
+          "parameters": [
+            {
+              "description": "Wallet address",
+              "in": "query",
+              "name": "address",
+              "required": true,
+              "schema": {
+                "pattern": "^0x[a-fA-F0-9]{40}$",
+                "type": "string"
+              }
+            },
+            {
+              "description": "ERC20 contract address",
+              "in": "query",
+              "name": "contract",
+              "required": true,
+              "schema": {
+                "pattern": "^0x[a-fA-F0-9]{40}$",
+                "type": "string"
+              }
+            },
+            {
+              "description": "Blockchain network to query: `ethereum` (mainnet, default), `sepolia` (Ethereum testnet), or `robinhood` (Robinhood Chain, chain ID 4663, an Arbitrum Orbit L2 that settles to Ethereum).",
+              "in": "query",
+              "name": "network",
+              "required": false,
+              "schema": {
+                "default": "ethereum",
+                "enum": [
+                  "ethereum",
+                  "sepolia",
+                  "robinhood"
+                ],
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "example": {
+                    "data": {
+                      "account": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+                      "balance": "1234567890",
+                      "contract_address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                      "decimals": 6,
+                      "name": "Tether USD",
+                      "symbol": "USDT"
+                    },
+                    "meta": {
+                      "cost_usdc": "0.003",
+                      "endpoint": "/api/chain/erc20-balance",
+                      "payment_chain": "base",
+                      "payment_token": "USDC",
+                      "request_id": "00000000abcdef01"
+                    }
+                  },
+                  "schema": {
+                    "properties": {
+                      "data": {
+                        "description": "Endpoint-specific response payload",
+                        "properties": {
+                          "account": {
+                            "type": "string"
+                          },
+                          "balance": {
+                            "type": "string"
+                          },
+                          "contract_address": {
+                            "type": "string"
+                          },
+                          "decimals": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "symbol": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "error": {
+                        "properties": {
+                          "code": {
+                            "type": "integer"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "meta": {
+                        "properties": {
+                          "cost_usdc": {
+                            "type": "string"
+                          },
+                          "endpoint": {
+                            "type": "string"
+                          },
+                          "payment_chain": {
+                            "type": "string"
+                          },
+                          "payment_token": {
+                            "type": "string"
+                          },
+                          "request_id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "endpoint",
+                          "request_id"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "data",
+                      "meta"
+                    ],
+                    "type": "object"
+                  }
+                }
+              },
+              "description": "Successful response"
+            },
+            "402": {
+              "description": "Payment Required - include x402 payment in Payment-Signature header"
+            }
+          },
+          "summary": "ERC20 token balance for any Ethereum wallet - USDC, USDT, DAI, or any token - via balanceOf (eth_call) on OneSource live Ethereum RPC",
+          "tags": [
+            "blockchain",
+            "ethereum",
+            "onesource",
+            "rpc",
+            "live-data",
+            "erc20",
+            "token",
+            "robinhood",
+            "sepolia",
+            "arbitrum-orbit",
+            "l2",
+            "multi-chain"
+          ],
+          "x-bazaar": {
+            "info": {
+              "input": {
+                "method": "GET",
+                "queryParams": {
+                  "address": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+                  "contract": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                  "network": "ethereum"
+                },
+                "type": "http"
+              },
+              "output": {
+                "example": {
+                  "data": {
+                    "account": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+                    "balance": "1234567890",
+                    "contract_address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                    "decimals": 6,
+                    "name": "Tether USD",
+                    "symbol": "USDT"
+                  },
+                  "meta": {
+                    "cost_usdc": "0.003",
+                    "endpoint": "/api/chain/erc20-balance",
+                    "payment_chain": "base",
+                    "payment_token": "USDC",
+                    "request_id": "00000000abcdef01"
+                  }
+                },
+                "type": "json"
+              }
+            },
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "input": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "method": {
+                      "enum": [
+                        "GET",
+                        "HEAD",
+                        "DELETE"
+                      ],
+                      "type": "string"
+                    },
+                    "queryParams": {
+                      "properties": {
+                        "address": {
+                          "description": "Wallet address",
+                          "pattern": "^0x[a-fA-F0-9]{40}$",
+                          "type": "string"
+                        },
+                        "contract": {
+                          "description": "ERC20 contract address",
+                          "pattern": "^0x[a-fA-F0-9]{40}$",
+                          "type": "string"
+                        },
+                        "network": {
+                          "default": "ethereum",
+                          "description": "Blockchain network to query: `ethereum` (mainnet, default), `sepolia` (Ethereum testnet), or `robinhood` (Robinhood Chain, chain ID 4663, an Arbitrum Orbit L2 that settles to Ethereum).",
+                          "enum": [
+                            "ethereum",
+                            "sepolia",
+                            "robinhood"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "address",
+                        "contract"
+                      ],
+                      "type": "object"
+                    },
+                    "type": {
+                      "const": "http",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "method"
+                  ],
+                  "type": "object"
+                },
+                "output": {
+                  "properties": {
+                    "example": {
+                      "properties": {
+                        "data": {
+                          "description": "Endpoint-specific response payload",
+                          "properties": {
+                            "account": {
+                              "type": "string"
+                            },
+                            "balance": {
+                              "type": "string"
+                            },
+                            "contract_address": {
+                              "type": "string"
+                            },
+                            "decimals": {
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "error": {
+                          "properties": {
+                            "code": {
+                              "type": "integer"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "meta": {
+                          "properties": {
+                            "cost_usdc": {
+                              "type": "string"
+                            },
+                            "endpoint": {
+                              "type": "string"
+                            },
+                            "payment_chain": {
+                              "type": "string"
+                            },
+                            "payment_token": {
+                              "type": "string"
+                            },
+                            "request_id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "endpoint",
+                            "request_id"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "data",
+                        "meta"
+                      ],
+                      "type": "object"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "input"
+              ],
+              "type": "object"
+            }
+          },
+          "x-keywords": [
+            "ERC20 balance",
+            "token balance",
+            "balanceOf",
+            "USDC balance",
+            "USDT balance",
+            "DAI balance",
+            "token holdings",
+            "stablecoin balance"
+          ],
+          "x-payment-info": {
+            "payTo": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+            "price": {
+              "amount": "0.003",
+              "currency": "USD",
+              "mode": "fixed"
+            },
+            "protocols": [
+              {
+                "x402": {}
+              },
+              {
+                "mpp": {
+                  "currency": "0x20c000000000000000000000b9537d11c60e8b50",
+                  "intent": "charge",
+                  "method": "tempo"
+                }
+              }
+            ]
+          },
+          "x-use-cases": [
+            "Check how much USDC, USDT, or any ERC20 token a wallet holds",
+            "Read a single token balance for one wallet",
+            "Snapshot a specific token position before a swap",
+            "Detect when a wallet's token balance changes"
+          ]
+        }
+      }
+    }
+  },
+  "runtime": {
+    "status": 402,
+    "challenge": {
+      "x402Version": 2,
+      "resource": {
+        "url": "https://api.onesource.io/api/chain/erc20-balance",
+        "description": "ERC20 token balance for any Ethereum wallet - USDC, USDT, DAI, or any token - via balanceOf (eth_call) on OneSource live Ethereum RPC",
+        "mimeType": "application/json"
+      },
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "currency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "amount": "3000",
+          "maxAmountRequired": "3000",
+          "payTo": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+          "recipient": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+          "maxTimeoutSeconds": 3600,
+          "extra": {
+            "credentialTypes": [
+              "authorization"
+            ],
+            "name": "USD Coin",
+            "version": "2"
+          }
+        },
+        {
+          "scheme": "batch-settlement",
+          "network": "eip155:8453",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "currency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "amount": "3000",
+          "maxAmountRequired": "3000",
+          "payTo": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+          "recipient": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+          "maxTimeoutSeconds": 3600,
+          "extra": {
+            "name": "USD Coin",
+            "receiverAuthorizer": "0x11dF9F6280632aB8F12926b3f569E493EaEcf81b",
+            "version": "2",
+            "withdrawDelay": 86400
+          }
+        }
+      ],
+      "extensions": {
+        "bazaar": {
+          "info": {
+            "input": {
+              "method": "GET",
+              "queryParams": {
+                "account": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+                "token": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                "network": "ethereum"
+              },
+              "type": "http"
+            },
+            "output": {
+              "example": {
+                "data": {
+                  "account": "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+                  "balance": "1234567890",
+                  "contract_address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                  "decimals": 6,
+                  "name": "Tether USD",
+                  "symbol": "USDT"
+                },
+                "meta": {
+                  "cost_usdc": "0.001",
+                  "endpoint": "/api/chain/erc20-balance",
+                  "payment_chain": "base",
+                  "payment_token": "USDC",
+                  "request_id": "00000000abcdef01"
+                }
+              },
+              "type": "json"
+            }
+          },
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "input": {
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "enum": [
+                      "GET",
+                      "HEAD",
+                      "DELETE"
+                    ],
+                    "type": "string"
+                  },
+                  "queryParams": {
+                    "properties": {
+                      "account": {
+                        "pattern": "^0x[a-fA-F0-9]{40}$",
+                        "type": "string"
+                      },
+                      "token": {
+                        "pattern": "^0x[a-fA-F0-9]{40}$",
+                        "type": "string"
+                      },
+                      "network": {
+                        "default": "ethereum",
+                        "enum": [
+                          "ethereum",
+                          "sepolia",
+                          "robinhood"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "account",
+                      "token"
+                    ],
+                    "type": "object"
+                  },
+                  "type": {
+                    "const": "http",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "method"
+                ],
+                "type": "object"
+              },
+              "output": {
+                "properties": {
+                  "example": {
+                    "properties": {
+                      "data": {
+                        "description": "Endpoint-specific response payload",
+                        "properties": {
+                          "account": {
+                            "type": "string"
+                          },
+                          "balance": {
+                            "type": "string"
+                          },
+                          "contract_address": {
+                            "type": "string"
+                          },
+                          "decimals": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "symbol": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "error": {
+                        "properties": {
+                          "code": {
+                            "type": "integer"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "meta": {
+                        "properties": {
+                          "cost_usdc": {
+                            "type": "string"
+                          },
+                          "endpoint": {
+                            "type": "string"
+                          },
+                          "payment_chain": {
+                            "type": "string"
+                          },
+                          "payment_token": {
+                            "type": "string"
+                          },
+                          "request_id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "endpoint",
+                          "request_id"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "data",
+                      "meta"
+                    ],
+                    "type": "object"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "error": "Payment required",
+      "meta": {
+        "cost_usdc": "0.003",
+        "endpoint": "/api/chain/erc20-balance",
+        "network": "eip155:8453"
+      },
+      "payment_rails": [
+        {
+          "assets": [
+            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          ],
+          "chain": "eip155:8453",
+          "rail": "x402",
+          "recipient": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea"
+        },
+        {
+          "assets": [
+            "0x20c000000000000000000000b9537d11c60e8b50",
+            "0x20c0000000000000000000000000000000000000"
+          ],
+          "chain": "tempo:4217",
+          "rail": "mpp",
+          "recipient": "0x19B8e99079A5558ff4460357b0a78e14a7F600B7"
+        }
+      ],
+      "api_key_subscription": {
+        "description": "Alternative to paying per call: a flat-rate monthly subscription authenticated with `Authorization: Bearer <key>`. No wallet, stablecoin, or on-chain settlement required. Use this if the client cannot custody a private key, if billing must be invoiced, or if per-call pricing costs more than a flat fee at your volume.",
+        "url": "https://onesource.io/rest-api#pricing"
+      }
+    }
+  }
+}

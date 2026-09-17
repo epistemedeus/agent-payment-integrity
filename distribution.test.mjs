@@ -20,6 +20,8 @@ const example = readFileSync(join(root, "examples/seller-github-action.yml"), "u
 const PACKED = [
   "package/cli.mjs",
   "package/integrity.mjs",
+  "package/bin/offer-coherence-composer.mjs",
+  "package/src/offer-coherence-composer/compose.mjs",
   "package/README.md",
   "package/LICENSE",
   "package/SECURITY.md",
@@ -77,6 +79,10 @@ test("packaging: skill ships in npm; action stays git-consumed", { timeout: 60_0
   assert.equal(lock.packages[""].version, packageJson.version);
   assert.equal(packageJson.private, true);
   assert.ok(packageJson.files.includes("skills"));
+  assert.ok(packageJson.files.includes("bin"));
+  assert.ok(packageJson.files.includes("src/offer-coherence-composer"));
+  assert.equal(packageJson.dependencies["agent-payment-policy"], "0.12.0");
+  assert.equal(packageJson.dependencies["agent-payment-policy-015"], "npm:agent-payment-policy@0.15.0");
   assert.equal(packageJson.files.includes("action.yml"), false);
   assert.equal(packageJson.files.includes("action"), false);
   assert.equal(packageJson.files.includes("examples"), false);
