@@ -41,7 +41,7 @@
     "prepack": "npm test"
   },
   "dependencies": {
-    "@x402/core": "2.16.0",
+    "@x402/core": "2.26.0",
     "@x402/extensions": "2.16.0",
     "agent-payment-policy": "0.12.0",
     "ajv": "8.20.0",
