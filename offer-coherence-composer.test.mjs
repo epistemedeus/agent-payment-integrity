@@ -92,7 +92,7 @@ function coherentObservation() {
             },
             "x-payment-info": {
               price: { amount: "0.05", currency: "USD" },
-              protocols: [{ x402: { asset: ASSET, network: "eip155:8453", scheme: "exact" } }],
+              protocols: [{ x402: { asset: ASSET, network: "eip155:8453", scheme: "exact", payTo: RECIPIENT } }],
             },
           },
         },
@@ -130,6 +130,12 @@ test("coherent GET fixture exits 0 with integrity ok and machineBuyable", async 
   assert.equal(report.ok, true);
   assert.equal(report.machineBuyable, true);
   assert.equal(report.integrity.ok, true);
+  assert.equal(report.offerCoherence?.decision, "coherent");
+  assert.equal(report.catalogRecipient.unknown, false);
+  assert.equal(report.catalogRecipient.matched, true);
+  assert.equal(report.catalogRecipient.catalog, RECIPIENT);
+  assert.equal(report.catalogRecipient.runtime, RECIPIENT);
+  assert.equal(report.findings.includes("catalog_recipient_unknown"), false);
   assert.equal(report.boundary.paymentSent, false);
   assert.equal(report.boundary.sellerPostTransmitted, false);
   assert.equal(report.boundary.bazaarCallCountsUsedAsConversion, false);
@@ -242,6 +248,68 @@ test("OpenAPI x402 network/asset drift fails closed and is not copied from the 4
   assert.equal(assetReport.ok, false);
   assert.ok(assetReport.offerCoherence.drifted.includes("asset"));
   assert.ok(assetReport.findings.some((finding) => finding.includes("asset")));
+});
+
+test("unknown catalog recipient fails closed and is not allowed partial metadata", async () => {
+  const observation = JSON.parse(readFileSync(join(root, "fixtures/unknown-catalog-recipient.json"), "utf8"));
+  const report = await composeFromFixture(observation);
+  assert.equal(report.ok, false);
+  assert.equal(report.examplePrice.matched, true);
+  assert.equal(report.catalogRecipient.unknown, true);
+  assert.equal(report.catalogRecipient.catalog, null);
+  assert.equal(report.catalogRecipient.runtime, RECIPIENT);
+  assert.equal(report.catalogRecipient.matched, null);
+  assert.equal(report.offerCoherence?.decision, "partial");
+  assert.deepEqual(report.offerCoherence.unknown, ["recipient"]);
+  assert.ok(report.findings.includes("catalog_recipient_unknown"));
+  assert.equal(report.findings.some((finding) => finding.includes("runtime_accepts")), false);
+  const cli = composerCli(["--fixture", "fixtures/unknown-catalog-recipient.json"]);
+  assert.equal(cli.status, 1, cli.stderr);
+  assert.match(cli.stdout, /catalog_recipient_unknown/);
+  const body = JSON.parse(cli.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.catalogRecipient.unknown, true);
+  assert.equal(body.offerCoherence.decision, "partial");
+});
+
+test("catalog recipient mismatch fails closed and is not copied from the 402", async () => {
+  const observation = coherentObservation();
+  observation.runtime.challenge.accepts[0].payTo = "0x2222222222222222222222222222222222222222";
+  const report = await composeFromFixture(observation);
+  assert.equal(report.ok, false);
+  assert.equal(report.catalogRecipient.unknown, false);
+  assert.equal(report.catalogRecipient.matched, false);
+  assert.equal(report.catalogRecipient.catalog, RECIPIENT);
+  assert.equal(report.offerCoherence?.decision, "drifted");
+  assert.ok(report.offerCoherence.drifted.includes("recipient"));
+  assert.ok(report.findings.some((finding) => finding.startsWith("offer_coherence_drifted") && finding.includes("recipient")));
+  assert.equal(report.findings.includes("catalog_recipient_unknown"), false);
+});
+
+test("CI oracle rejects missing price, network/asset drift, unknown recipient, and recipient mismatch", async () => {
+  const missingPrice = composerCli(["--fixture", "fixtures/missing-catalog-example-price.json"]);
+  assert.equal(missingPrice.status, 1, missingPrice.stderr);
+  assert.match(missingPrice.stdout, /example_price_missing/);
+  assert.equal(JSON.parse(missingPrice.stdout).ok, false);
+
+  const network = coherentObservation();
+  network.runtime.challenge.accepts[0].network = "eip155:1";
+  assert.equal((await composeFromFixture(network)).ok, false);
+
+  const asset = coherentObservation();
+  asset.runtime.challenge.accepts[0].asset = "0x2222222222222222222222222222222222222222";
+  assert.equal((await composeFromFixture(asset)).ok, false);
+
+  const unknownRecipient = composerCli(["--fixture", "fixtures/unknown-catalog-recipient.json"]);
+  assert.equal(unknownRecipient.status, 1);
+  assert.equal(JSON.parse(unknownRecipient.stdout).ok, false);
+  assert.ok(JSON.parse(unknownRecipient.stdout).findings.includes("catalog_recipient_unknown"));
+
+  const mismatch = coherentObservation();
+  mismatch.runtime.challenge.accepts[0].payTo = "0x2222222222222222222222222222222222222222";
+  const mismatchReport = await composeFromFixture(mismatch);
+  assert.equal(mismatchReport.ok, false);
+  assert.ok(mismatchReport.offerCoherence.drifted.includes("recipient"));
 });
 
 test("OpenAPI path-level and $ref parameters count as public input names", () => {

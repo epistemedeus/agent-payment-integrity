@@ -389,6 +389,7 @@ function collectFindings({
   successPaths,
   examplePrice,
   requestBinding,
+  catalogRecipient,
 }) {
   const findings = [];
   if (integrity) {
@@ -400,6 +401,10 @@ function collectFindings({
   }
   if (offerCoherence?.decision === "drifted") {
     findings.push(`offer_coherence_drifted:${(offerCoherence.drifted || []).join(",") || "unknown"}`);
+  }
+  // Recipient routes payment. Unknown catalog payTo is an integrity failure, not allowed partial metadata.
+  if (method === "GET" && catalogRecipient?.unknown) {
+    findings.push("catalog_recipient_unknown");
   }
   if (responseContract?.decision && responseContract.decision !== "admissible") {
     findings.push(`seller_response_contract_${responseContract.decision}`);
@@ -511,11 +516,25 @@ export async function composeOfferHandlerCoherence(observation, {
     matched: example.atomic !== null && runtimeAmount !== null ? example.atomic === runtimeAmount : null,
   };
 
+  const catalogTerms = catalogX402Terms(document, route, method);
+  const runtimeAccept = asArray(challenge?.accepts).find((item) => item?.scheme === "exact")
+    || challenge?.accepts?.[0]
+    || null;
+  const runtimeRecipient = [runtimeAccept?.payTo, runtimeAccept?.recipient]
+    .find((value) => typeof value === "string" && value) || null;
+  const catalogRecipient = {
+    catalog: catalogTerms.recipient,
+    runtime: runtimeRecipient,
+    matched: catalogTerms.recipient && runtimeRecipient
+      ? catalogTerms.recipient.toLowerCase() === runtimeRecipient.toLowerCase()
+      : null,
+    unknown: !catalogTerms.recipient,
+  };
+
   let offerCoherence = null;
   if (method === "GET" && runtimeAmount && example.atomic) {
-    const accept = challenge.accepts.find((item) => item.scheme === "exact") || challenge.accepts[0];
+    const accept = runtimeAccept || challenge.accepts[0];
     const expiresAt = x402ExpiresAt(challenge, observation.runtime?.headers, now);
-    const catalogTerms = catalogX402Terms(document, route, method);
     offerCoherence = evaluateOfferCoherence({
       schemaVersion: POLICY_SCHEMAS.offerCoherenceObservation,
       catalog: {
@@ -577,6 +596,7 @@ export async function composeOfferHandlerCoherence(observation, {
     successPaths,
     examplePrice,
     requestBinding,
+    catalogRecipient,
   });
 
   const liveGet = method === "GET" && !observation.fixture;
@@ -598,6 +618,7 @@ export async function composeOfferHandlerCoherence(observation, {
     inputNames,
     successPaths,
     examplePrice,
+    catalogRecipient,
     requestBinding,
     responseContract: {
       decision: responseContract.decision,
@@ -633,7 +654,7 @@ export async function composeOfferHandlerCoherence(observation, {
       twoCharges: false,
       bazaarCallCountsUsedAsConversion: false,
       policyOfferCoherenceCheckIsNotCiOracle: true,
-      statement: "Fail-closed composition of OpenAPI input names, Bazaar in/out, unpaid 402, canonical GET binding, example price, and required success paths. It does not pay, sign, or treat catalog call counts as conversion.",
+      statement: "Fail-closed composition of OpenAPI input names, Bazaar in/out, unpaid 402, canonical GET binding, example price, catalog recipient, and required success paths. Unknown catalog recipient is an integrity failure because recipient routes payment; it is not allowed non-fatal metadata. It does not pay, sign, or treat catalog call counts as conversion.",
     },
   };
 }

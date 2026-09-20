@@ -15,12 +15,14 @@ Usage:
   offer-coherence-composer --fixture path/to/observation.json
 
 Fail-closed composition of OpenAPI input names, Bazaar in/out, live unpaid 402,
-canonical GET binding, example price, and required success paths.
+canonical GET binding, example price, catalog recipient, and required success paths.
 
 GET live mode performs one credential-free unpaid 402 probe plus OpenAPI read.
 POST sellers are fixture-only; the composer never transmits a seller POST,
 never signs, and never pays. Bazaar call counts are not conversion.
-Policy offer-coherence-check is not the CI oracle: drifted observations fail here.`;
+Unknown catalog recipient fails closed because it routes payment; it is not
+allowed partial metadata. Policy offer-coherence-check is not the CI oracle:
+drifted or partial recipient observations fail here.`;
 }
 
 function option(name) {
