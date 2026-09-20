@@ -1,0 +1,383 @@
+{
+  "schemaVersion": "agent-payment-integrity.offer-handler-coherence-observation.v1",
+  "id": "stall-cap-weather-seller-response-contract-partial",
+  "seller": "The Stall",
+  "source": {
+    "kind": "live_unpaid_snapshot",
+    "origin": "https://the-stall.intuitek.ai",
+    "route": "/cap/weather",
+    "note": "Pinned OpenAPI 200 schema has properties but no required fields; integrity finding seller_response_contract_partial."
+  },
+  "origin": "https://the-stall.intuitek.ai",
+  "method": "GET",
+  "route": "/cap/weather",
+  "url": "https://the-stall.intuitek.ai/cap/weather",
+  "expectedFailure": [
+    "seller_response_contract_partial"
+  ],
+  "openapi": {
+    "openapi": "3.1.0",
+    "info": {
+      "title": "The Stall",
+      "version": "4.97.0"
+    },
+    "paths": {
+      "/cap/weather": {
+        "get": {
+          "operationId": "weather",
+          "summary": "Current weather conditions and 7-day daily forecast for any location worldwide. Input a city name, coordinates, or address. Returns temperature (\u00b0C), humidity, wind speed, precipitation, weather code, and a forecast with high/low temps and precipitation totals. Free upstream: Open-Meteo (no API key, no rate limits). Useful for DeFi agents tracking energy markets (cold \u2192 heating demand \u2192 gas prices), agricultural commodity prediction markets, or natural disaster risk assessment for on-chain insurance.",
+          "tags": [
+            "capabilities"
+          ],
+          "security": [
+            {
+              "x402Payment": []
+            },
+            {
+              "bearerToken": []
+            }
+          ],
+          "x-payment-info": {
+            "registry": "https://the-stall.intuitek.ai/v1/payment-methods",
+            "negotiation": "https://the-stall.intuitek.ai/v1/payment-negotiations",
+            "protocols": [
+              {
+                "x402": {
+                  "method_id": "base-usdc-x402",
+                  "network": "eip155:8453",
+                  "scheme": "exact",
+                  "currency": "USDC"
+                }
+              },
+              {
+                "mpp": {
+                  "method_id": "stripe-mpp-spt",
+                  "network": "stripe",
+                  "scheme": "charge",
+                  "currency": "USD",
+                  "method": "stripe",
+                  "intent": "charge"
+                }
+              },
+              {
+                "internal-credit": {
+                  "method_id": "stall-prepaid-bearer",
+                  "network": "STALL ledger",
+                  "scheme": "prepaid-bearer",
+                  "currency": "call credits"
+                }
+              }
+            ],
+            "protocolNames": [
+              "x402",
+              "MPP",
+              "internal-credit"
+            ],
+            "methods": [
+              "base-usdc-x402",
+              "stripe-mpp-spt",
+              "stall-prepaid-bearer"
+            ],
+            "price": {
+              "mode": "fixed",
+              "currency": "USD",
+              "amount": "0.039"
+            },
+            "fiatBundles": {
+              "starter": {
+                "usd": 5,
+                "credits": 100
+              },
+              "pro": {
+                "usd": 30,
+                "credits": 1000
+              },
+              "scale": {
+                "usd": 200,
+                "credits": 10000
+              }
+            }
+          },
+          "parameters": [
+            {
+              "name": "location",
+              "in": "query",
+              "required": false,
+              "description": "City name, region, or address (e.g. 'New York', 'London UK', 'Tokyo'). Use this OR latitude/longitude.",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "name": "latitude",
+              "in": "query",
+              "required": false,
+              "description": "Latitude in decimal degrees (-90 to 90). Use with longitude instead of location name.",
+              "schema": {
+                "type": "number"
+              }
+            },
+            {
+              "name": "longitude",
+              "in": "query",
+              "required": false,
+              "description": "Longitude in decimal degrees (-180 to 180). Use with latitude instead of location name.",
+              "schema": {
+                "type": "number"
+              }
+            },
+            {
+              "name": "forecast_days",
+              "in": "query",
+              "required": false,
+              "description": "Number of forecast days (1\u201316). Default 7.",
+              "schema": {
+                "type": "integer",
+                "default": 7,
+                "minimum": 1,
+                "maximum": 16
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Capability result",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "country": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "latitude": {
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "type": "number"
+                          },
+                          "timezone": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "elevation": {
+                            "type": [
+                              "number",
+                              "null"
+                            ],
+                            "description": "Elevation in meters."
+                          }
+                        }
+                      },
+                      "current": {
+                        "type": "object",
+                        "properties": {
+                          "time": {
+                            "type": "string"
+                          },
+                          "temperature_c": {
+                            "type": "number"
+                          },
+                          "temperature_f": {
+                            "type": "number"
+                          },
+                          "humidity_pct": {
+                            "type": "number"
+                          },
+                          "wind_speed_kmh": {
+                            "type": "number"
+                          },
+                          "precipitation_mm": {
+                            "type": "number"
+                          },
+                          "weather_code": {
+                            "type": "integer"
+                          },
+                          "condition": {
+                            "type": "string",
+                            "description": "Human-readable condition from WMO code."
+                          }
+                        }
+                      },
+                      "forecast": {
+                        "type": "array",
+                        "description": "Daily forecast.",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "date": {
+                              "type": "string"
+                            },
+                            "max_temp_c": {
+                              "type": "number"
+                            },
+                            "min_temp_c": {
+                              "type": "number"
+                            },
+                            "precipitation_mm": {
+                              "type": "number"
+                            },
+                            "max_wind_kmh": {
+                              "type": "number"
+                            },
+                            "weather_code": {
+                              "type": "integer"
+                            },
+                            "condition": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "ts": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "402": {
+              "description": "Payment required \u2014 attach X-PAYMENT header with USDC on Base mainnet",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "x402Version": {
+                        "type": "integer",
+                        "example": 2
+                      },
+                      "error": {
+                        "type": "string"
+                      },
+                      "accepts": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      },
+                      "payment_negotiation": {
+                        "type": "object",
+                        "description": "Optional stall-payment-negotiation/v1 extension; canonical x402 fields remain unchanged."
+                      }
+                    },
+                    "required": [
+                      "x402Version",
+                      "accepts"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "runtime": {
+    "status": 402,
+    "challenge": {
+      "x402Version": 2,
+      "error": "Payment required",
+      "resource": {
+        "url": "https://the-stall.intuitek.ai/cap/weather",
+        "description": "Current weather conditions and 7-day daily forecast for any location worldwide. Input a city name, coordinates, or address. Returns temperature (\u00b0C), humidity, wind speed, precipitation, weather code, and a forecast with high/low temps and precipitation totals. Free upstream: Open-Meteo (no API key, no rate limits). Useful for DeFi agents tracking energy markets (cold \u2192 heating demand \u2192 gas prices), agricultural commodity prediction markets, or natural disaster risk assessment for on-chain insu",
+        "mimeType": "application/json"
+      },
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "eip155:8453",
+          "amount": "39000",
+          "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "payTo": "0x03d773c52B67993e60Ecb3134b17436fE03B584c",
+          "maxTimeoutSeconds": 300,
+          "extra": {
+            "name": "USD Coin",
+            "version": "2"
+          }
+        }
+      ],
+      "extensions": {
+        "bazaar": {
+          "info": {
+            "input": {
+              "type": "http",
+              "method": "GET",
+              "queryParams": {}
+            }
+          },
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "http"
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "GET"
+                    ]
+                  },
+                  "queryParams": {
+                    "type": "object",
+                    "properties": {
+                      "location": {
+                        "type": "string",
+                        "description": "City name, region, or address (e.g. 'New York', 'London UK', 'Tokyo'). Use this OR latitude/longitude."
+                      },
+                      "latitude": {
+                        "type": "number",
+                        "description": "Latitude in decimal degrees (-90 to 90). Use with longitude instead of location name."
+                      },
+                      "longitude": {
+                        "type": "number",
+                        "description": "Longitude in decimal degrees (-180 to 180). Use with latitude instead of location name."
+                      },
+                      "forecast_days": {
+                        "type": "integer",
+                        "description": "Number of forecast days (1\u201316). Default 7.",
+                        "default": 7,
+                        "minimum": 1,
+                        "maximum": 16
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "type",
+                  "method"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "input"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

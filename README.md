@@ -55,7 +55,18 @@ node cli.mjs audit --origin https://agents.samedaydesk.com --require-bazaar
 node cli.mjs audit --origin https://agents.samedaydesk.com --require-purchase-evidence
 node cli.mjs audit --origin https://agents.samedaydesk.com --format sarif --out audit-result.sarif
 node cli.mjs scaffold --origin https://agents.samedaydesk.com --service-version 1.23.11 --out agent-payment-evidence.json
+node bin/offer-coherence-composer.mjs --url 'https://agents.samedaydesk.com/extract?url=https://example.com'
+node bin/offer-coherence-composer.mjs --fixture fixtures/onesource-erc20-balance.json
 ```
+
+The offer-handler coherence composer is a fail-closed CI oracle over OpenAPI
+input names, Bazaar in/out, one unpaid 402, canonical GET binding, example
+price, and required success paths. It consumes `agent-payment-policy@0.15.0`
+`evaluateOfferCoherence` / `evaluateResponseContract` / `normalizeRequest` and
+reuses `auditIntegrity`. Policy `offer-coherence-check` prints drifted
+observations and exits 0; this composer must fail those fixtures. It does not
+POST to sellers, sign, pay, infer handler types, or treat Bazaar call counts as
+conversion.
 
 Use `--require-bazaar` when catalog eligibility is an explicit deployment gate.
 Without it, a missing Bazaar extension remains visible in the report but does

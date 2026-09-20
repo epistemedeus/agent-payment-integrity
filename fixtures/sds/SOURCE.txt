@@ -1,0 +1,6 @@
+Read-only copy of epistemedeus/samedaydesk client/src/data/sellerRepairBriefs.ts
+Repository: https://github.com/epistemedeus/samedaydesk
+Path: client/src/data/sellerRepairBriefs.ts
+Ref: main
+SHA-256 of copied bytes: ffce65cd061dee16d826eeb37a98b4c63c3ff280b93bdc8e8db28b88f119ad8d
+Do not PR SameDayDesk from this tree.

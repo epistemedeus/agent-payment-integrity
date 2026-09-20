@@ -13,11 +13,14 @@
   "type": "module",
   "exports": "./integrity.mjs",
   "bin": {
-    "agent-payment-integrity": "./cli.mjs"
+    "agent-payment-integrity": "./cli.mjs",
+    "offer-coherence-composer": "./bin/offer-coherence-composer.mjs"
   },
   "files": [
     "integrity.mjs",
     "cli.mjs",
+    "bin",
+    "src/offer-coherence-composer",
     "README.md",
     "LICENSE",
     "SECURITY.md",
@@ -37,6 +40,7 @@
   "homepage": "https://github.com/epistemedeus/agent-payment-integrity#readme",
   "scripts": {
     "test": "node --test *.test.mjs",
+    "offer-coherence": "node bin/offer-coherence-composer.mjs",
     "audit:self": "node cli.mjs audit --origin https://agents.samedaydesk.com",
     "prepack": "npm test"
   },
@@ -44,6 +48,7 @@
     "@x402/core": "2.16.0",
     "@x402/extensions": "2.16.0",
     "agent-payment-policy": "0.12.0",
+    "agent-payment-policy-015": "npm:agent-payment-policy@0.15.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "ipaddr.js": "2.5.0"
