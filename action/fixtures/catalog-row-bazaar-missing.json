@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "agent-payment-integrity.catalog-row.v1",
+  "channel": "integrity",
+  "origin": "https://seller.example",
+  "maxRoutes": 1,
+  "method": "GET",
+  "route": "/read",
+  "requiredPaths": [
+    "data.quote"
+  ],
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "data"
+    ],
+    "properties": {
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quote"
+        ],
+        "properties": {
+          "quote": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "id": "bazaar-missing",
+  "class": "negative",
+  "requireBazaar": true,
+  "probe": "unpaid_402_bazaar_omitted",
+  "expect": {
+    "ok": false,
+    "machineBuyable": false,
+    "runtimeChallengeVerified": true,
+    "status": 402,
+    "findings": [
+      "bazaar_extension_missing"
+    ],
+    "decision": "admissible",
+    "nextAction": "eligible_for_separate_value_authorization_and_live_post_payment_validation",
+    "repairPresent": true,
+    "repairComplete": true,
+    "guaranteedPaths": [
+      "data.quote"
+    ],
+    "repairActions": [],
+    "bazaar": {
+      "present": false,
+      "valid": null
+    },
+    "protocols": [
+      "x402"
+    ],
+    "probe": {
+      "attempted": true,
+      "reason": null
+    },
+    "requests": 1
+  }
+}

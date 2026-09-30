@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "agent-payment-integrity.catalog-row.v1",
+  "channel": "integrity",
+  "origin": "https://seller.example",
+  "maxRoutes": 1,
+  "id": "contract-invalid",
+  "class": "negative",
+  "method": "POST",
+  "route": "/quote",
+  "requiredPaths": [
+    "data.quote"
+  ],
+  "requireBazaar": false,
+  "probe": "none",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "data"
+    ],
+    "properties": {
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quote"
+        ],
+        "properties": {
+          "quote": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "example": {
+    "data": {
+      "quote": 909091
+    }
+  },
+  "expect": {
+    "ok": false,
+    "machineBuyable": false,
+    "runtimeChallengeVerified": false,
+    "status": null,
+    "findings": [
+      "seller_response_contract_invalid"
+    ],
+    "decision": "invalid",
+    "nextAction": "seller_must_fix_the_declared_example_or_response_schema",
+    "repairPresent": true,
+    "repairComplete": true,
+    "guaranteedPaths": [
+      "data.quote"
+    ],
+    "repairActions": [],
+    "bazaar": {
+      "present": null,
+      "valid": null
+    },
+    "protocols": [
+      "x402"
+    ],
+    "probe": {
+      "attempted": false,
+      "reason": "post_requires_explicit_non_secret_fixture"
+    },
+    "requests": 0
+  }
+}

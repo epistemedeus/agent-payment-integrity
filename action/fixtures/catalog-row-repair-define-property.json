@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "agent-payment-integrity.catalog-row.v1",
+  "channel": "integrity",
+  "origin": "https://seller.example",
+  "maxRoutes": 1,
+  "id": "repair-define-property",
+  "class": "negative",
+  "method": "POST",
+  "route": "/quote",
+  "requiredPaths": [
+    "data.quote"
+  ],
+  "requireBazaar": false,
+  "probe": "none",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "data"
+    ],
+    "properties": {
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      }
+    }
+  },
+  "expect": {
+    "ok": false,
+    "machineBuyable": false,
+    "runtimeChallengeVerified": false,
+    "status": null,
+    "findings": [
+      "seller_response_required_path_missing:data.quote"
+    ],
+    "decision": "admissible",
+    "nextAction": "eligible_for_separate_value_authorization_and_live_post_payment_validation",
+    "repairPresent": true,
+    "repairComplete": false,
+    "guaranteedPaths": [],
+    "repairActions": [
+      {
+        "requiredPath": "data.quote",
+        "action": "define_and_require_property",
+        "parentPath": "data",
+        "property": "quote",
+        "propertyDeclared": false,
+        "propertyType": null
+      }
+    ],
+    "bazaar": {
+      "present": null,
+      "valid": null
+    },
+    "protocols": [
+      "x402"
+    ],
+    "probe": {
+      "attempted": false,
+      "reason": "post_requires_explicit_non_secret_fixture"
+    },
+    "requests": 0
+  }
+}

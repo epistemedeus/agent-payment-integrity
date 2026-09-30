@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "agent-payment-integrity.catalog-row.v1",
+  "channel": "integrity",
+  "origin": "https://seller.example",
+  "maxRoutes": 1,
+  "id": "contract-absent",
+  "class": "negative",
+  "method": "POST",
+  "route": "/quote",
+  "requiredPaths": [
+    "data.quote"
+  ],
+  "requireBazaar": false,
+  "probe": "none",
+  "schema": null,
+  "expect": {
+    "ok": false,
+    "machineBuyable": false,
+    "runtimeChallengeVerified": false,
+    "status": null,
+    "findings": [
+      "seller_response_contract_absent",
+      "seller_response_required_path_missing:data.quote"
+    ],
+    "decision": "absent",
+    "nextAction": "seller_must_publish_a_machine_verifiable_success_response_schema",
+    "repairPresent": true,
+    "repairComplete": false,
+    "guaranteedPaths": [],
+    "repairActions": [
+      {
+        "requiredPath": "data.quote",
+        "action": "define_nested_property_path",
+        "parentPath": "$",
+        "property": "data",
+        "propertyDeclared": false,
+        "propertyType": null
+      }
+    ],
+    "bazaar": {
+      "present": null,
+      "valid": null
+    },
+    "protocols": [
+      "x402"
+    ],
+    "probe": {
+      "attempted": false,
+      "reason": "post_requires_explicit_non_secret_fixture"
+    },
+    "requests": 0
+  }
+}
