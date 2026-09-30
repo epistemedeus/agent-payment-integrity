@@ -798,6 +798,7 @@ export async function auditIntegrity({
     try {
       ({ url: target, queryKeys } = buildAuditTarget(base, route, operation));
     } catch (error) {
+      findings.push(`target_invalid:${error.message}`);
       routes.push({
         method,
         route,
@@ -806,8 +807,10 @@ export async function auditIntegrity({
         valid: false,
         runtimeChallengeVerified: false,
         probe: { attempted: false, reason: "target_not_constructible" },
-        findings: [`target_invalid:${error.message}`],
+        findings,
         protocols: [],
+        responseContract,
+        repairPlan,
       });
       continue;
     }
@@ -816,7 +819,20 @@ export async function auditIntegrity({
     try {
       response = await requestImpl(target, { accept: "application/json" });
     } catch {
-      routes.push({ method, route, status: null, queryKeys, valid: false, runtimeChallengeVerified: false, probe: { attempted: true, reason: "request_failed" }, findings: ["credential_free_probe_failed"], protocols: [] });
+      findings.push("credential_free_probe_failed");
+      routes.push({
+        method,
+        route,
+        status: null,
+        queryKeys,
+        valid: false,
+        runtimeChallengeVerified: false,
+        probe: { attempted: true, reason: "request_failed" },
+        findings,
+        protocols: [],
+        responseContract,
+        repairPlan,
+      });
       continue;
     }
     if (response.status !== 402) findings.push(`expected_402_received_${response.status}`);

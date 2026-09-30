@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "agent-payment-integrity.catalog-row.v1",
+  "channel": "integrity",
+  "origin": "https://seller.example",
+  "maxRoutes": 1,
+  "method": "GET",
+  "route": "/read",
+  "requiredPaths": [
+    "data.quote"
+  ],
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "data"
+    ],
+    "properties": {
+      "data": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quote"
+        ],
+        "properties": {
+          "quote": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "id": "probe-failed",
+  "class": "negative",
+  "requireBazaar": false,
+  "probe": "fail",
+  "expect": {
+    "ok": false,
+    "machineBuyable": false,
+    "runtimeChallengeVerified": false,
+    "status": null,
+    "findings": [
+      "credential_free_probe_failed"
+    ],
+    "decision": "admissible",
+    "nextAction": "eligible_for_separate_value_authorization_and_live_post_payment_validation",
+    "repairPresent": true,
+    "repairComplete": true,
+    "guaranteedPaths": [
+      "data.quote"
+    ],
+    "repairActions": [],
+    "bazaar": null,
+    "protocols": [],
+    "probe": {
+      "attempted": true,
+      "reason": "request_failed"
+    },
+    "requests": 1
+  }
+}

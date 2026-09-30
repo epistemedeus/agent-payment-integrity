@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "agent-payment-integrity.catalog-row.v1",
+  "channel": "integrity",
+  "origin": "https://seller.example",
+  "maxRoutes": 1,
+  "id": "contract-partial",
+  "class": "negative",
+  "method": "POST",
+  "route": "/quote",
+  "requiredPaths": [],
+  "requireBazaar": false,
+  "probe": "none",
+  "schema": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "expect": {
+    "ok": false,
+    "machineBuyable": false,
+    "runtimeChallengeVerified": false,
+    "status": null,
+    "findings": [
+      "seller_response_contract_partial"
+    ],
+    "decision": "partial",
+    "nextAction": "seller_must_publish_a_self_contained_object_schema_with_typed_required_fields",
+    "repairPresent": true,
+    "repairComplete": true,
+    "guaranteedPaths": [],
+    "repairActions": [],
+    "bazaar": {
+      "present": null,
+      "valid": null
+    },
+    "protocols": [
+      "x402"
+    ],
+    "probe": {
+      "attempted": false,
+      "reason": "post_requires_explicit_non_secret_fixture"
+    },
+    "requests": 0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "agent-payment-integrity.catalog-row.v1",
+  "id": "unsafe-origin",
+  "class": "negative",
+  "channel": "cli",
+  "origin": "https://127.0.0.1",
+  "method": "GET",
+  "route": "/read",
+  "expect": {
+    "ok": false,
+    "error": "origin address is not public",
+    "cliExit": 1,
+    "actionExit": 1,
+    "actionRule": "action_input_invalid"
+  }
+}
