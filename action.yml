@@ -41,6 +41,10 @@ inputs:
     description: If true, the exact purchase-evidence relation must verify. Must be exactly true or false.
     required: false
     default: "false"
+  quote-transport:
+    description: Optional unpaid x402 quote measurement. Use measure or a positive line-byte budget up to 65536.
+    required: false
+    default: ""
   upload-sarif:
     description: If true, upload the SARIF file to GitHub code scanning using the default GITHUB_TOKEN. Requires security-events write. Must be exactly true or false.
     required: false
@@ -95,6 +99,7 @@ runs:
         INPUT_PUBLIC_DNS: ${{ inputs.public-dns }}
         INPUT_REQUIRE_BAZAAR: ${{ inputs.require-bazaar }}
         INPUT_REQUIRE_PURCHASE_EVIDENCE: ${{ inputs.require-purchase-evidence }}
+        INPUT_QUOTE_TRANSPORT: ${{ inputs.quote-transport }}
       run: node "$GITHUB_ACTION_PATH/action/run.mjs"
 
     - name: Upload SARIF

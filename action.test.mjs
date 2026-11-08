@@ -44,12 +44,23 @@ test("action.yml is a pinned composite action with no secret or token inputs", a
   assert.match(source, /npm ci --ignore-scripts --omit=dev/);
   assert.ok(source.includes("run: node \"$GITHUB_ACTION_PATH/action/run.mjs\""));
   assert.ok(source.includes("INPUT_ORIGIN: ${{ inputs.origin }}"));
+  assert.ok(source.includes("INPUT_QUOTE_TRANSPORT: ${{ inputs.quote-transport }}"));
   assert.equal(source.includes("secrets."), false);
   assert.equal(/\btoken:/i.test(source), false);
   assert.equal(source.includes("scaffold"), false);
   assert.equal(source.includes("persist-credentials"), false);
   assert.ok(source.includes("GITHUB_TOKEN: \"\""));
   assert.match(source, /^branding:\n  icon: shield\n  color: blue\n/m);
+});
+
+test("action quote transport is opt-in and passes the selected budget to the CLI", () => {
+  const env = { INPUT_ORIGIN: "https://seller.example" };
+  assert.equal(buildCliArgs(parseInputs(env)).includes("--quote-transport"), false);
+  for (const mode of ["measure", "8190"]) {
+    const args = buildCliArgs(parseInputs({ ...env, INPUT_QUOTE_TRANSPORT: mode }));
+    assert.deepEqual(args.slice(-2), ["--quote-transport", mode]);
+  }
+  assert.throws(() => parseInputs({ ...env, INPUT_QUOTE_TRANSPORT: "8190.5" }), /quote-transport/);
 });
 
 test("action.yml pins nested actions to full commit SHAs", async () => {

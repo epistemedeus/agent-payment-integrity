@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { TOOL_VERSION, normalizeOrigin } from "../integrity.mjs";
+import { TOOL_VERSION, normalizeOrigin, parseQuoteTransportOption } from "../integrity.mjs";
 
 const ACTION_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(ACTION_DIR, "..");
@@ -109,6 +109,7 @@ export function parseInputs(env = process.env) {
   if (requiredPaths.length > 16 || requiredPaths.some((item) => !REQUIRED_PATH.test(item))) {
     throw new Error("required-paths must contain at most 16 safe dotted JSON paths");
   }
+  const quoteTransport = parseQuoteTransportOption(env.INPUT_QUOTE_TRANSPORT || null);
   return {
     origin,
     route,
@@ -120,6 +121,7 @@ export function parseInputs(env = process.env) {
     publicDns: parseBoolean("public-dns", env.INPUT_PUBLIC_DNS, false),
     requireBazaar: parseBoolean("require-bazaar", env.INPUT_REQUIRE_BAZAAR, false),
     requirePurchaseEvidence: parseBoolean("require-purchase-evidence", env.INPUT_REQUIRE_PURCHASE_EVIDENCE, false),
+    ...(quoteTransport !== null && { quoteTransport }),
   };
 }
 
@@ -142,6 +144,7 @@ export function buildCliArgs(inputs) {
   if (inputs.publicDns) args.push("--public-dns");
   if (inputs.requireBazaar) args.push("--require-bazaar");
   if (inputs.requirePurchaseEvidence) args.push("--require-purchase-evidence");
+  if (inputs.quoteTransport !== undefined) args.push("--quote-transport", String(inputs.quoteTransport));
   if (args[0] !== "audit" || args.includes("scaffold") || args.includes("--assert-read-only-post")) {
     throw new Error("action may only run a credential-free audit");
   }

@@ -32,8 +32,54 @@ const MAX_PROTOCOL_IDENTIFIER_BYTES = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 2_000_000;
 const DEFAULT_MAX_ROUTES = 64;
+const MAX_RESPONSE_HEADER_BYTES = 65_536;
 const SUPPORTED_METHODS = new Set(["GET", "POST"]);
 const REQUIRED_PATH = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){0,7}$/;
+const X402_QUOTE_FIELDS = new Set(["payment-required", "x-payment-required"]);
+
+export function parseQuoteTransportOption(value) {
+  if (value == null) return null;
+  if (value === "measure") return value;
+  const bytes = typeof value === "string" && /^[1-9][0-9]*$/.test(value) ? Number(value) : value;
+  if (!Number.isSafeInteger(bytes) || bytes < 1 || bytes > MAX_RESPONSE_HEADER_BYTES) {
+    throw new Error("quote-transport must be measure or an integer from 1 to 65536");
+  }
+  return bytes;
+}
+
+function collectQuoteFields(rawHeaders) {
+  const fields = [];
+  for (let i = 0; i < rawHeaders.length; i += 2) {
+    if (X402_QUOTE_FIELDS.has(rawHeaders[i].toLowerCase())) {
+      fields.push(rawHeaders[i], rawHeaders[i + 1]);
+    }
+  }
+  return fields;
+}
+
+function unverifiedQuote(reason) {
+  return { status: "unverified", reason };
+}
+
+function observeQuoteLine(response, selectedHeader, challenge, budget) {
+  if (response.status !== 402) return unverifiedQuote("not_402");
+  const fields = response.quoteFields;
+  if (!Array.isArray(fields)) return unverifiedQuote("raw_headers_unavailable");
+  if (!fields.length) return unverifiedQuote("field_missing");
+  if (fields.length !== 2) return unverifiedQuote("multiple_fields");
+  const [name, value] = fields;
+  const headerName = typeof name === "string" && name.toLowerCase();
+  if (!X402_QUOTE_FIELDS.has(headerName) || typeof value !== "string" || value !== selectedHeader) {
+    return unverifiedQuote("field_invalid");
+  }
+  const lineBytes = headerName.length + 2 + Buffer.byteLength(value, "latin1");
+  if (challenge.error || !/^(?:[A-Za-z0-9+/]+|[A-Za-z0-9_-]+)={0,2}$/.test(value)
+      || value.length % 4 === 1 || (value.endsWith("=") && value.length % 4 !== 0)) {
+    return { ...unverifiedQuote("field_invalid"), headerName, lineBytes };
+  }
+  const status = budget === "measure" ? "measured" : lineBytes <= budget ? "within_budget" : "over_budget";
+  return { status, headerName, lineBytes };
+}
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -186,6 +232,7 @@ export async function requestPinned(urlInput, {
   accept = "application/json",
   userAgent = "agent-payment-integrity/0.1",
   publicDns = false,
+  observeQuoteTransport = false,
 } = {}) {
   const url = new URL(urlInput);
   if (url.protocol !== "https:" || url.port || url.username || url.password || url.hash) {
@@ -202,7 +249,7 @@ export async function requestPinned(urlInput, {
       port: 443,
       method: "GET",
       path: `${url.pathname}${url.search}`,
-      maxHeaderSize: 65_536,
+      maxHeaderSize: MAX_RESPONSE_HEADER_BYTES,
       headers: { accept, "user-agent": userAgent },
       lookup: (_hostname, options, callback) => {
         if (options?.all) callback(null, [{ address, family }]);
@@ -231,6 +278,7 @@ export async function requestPinned(urlInput, {
             key.toLowerCase(),
             Array.isArray(value) ? value.join(", ") : String(value ?? ""),
           ])),
+          ...(observeQuoteTransport && { quoteFields: collectQuoteFields(response.rawHeaders) }),
           body: Buffer.concat(chunks),
           pinnedAddressFamily: family,
         });
@@ -754,7 +802,9 @@ export async function auditIntegrity({
   requiredPaths = [],
   maxRoutes = DEFAULT_MAX_ROUTES,
   requestImpl = requestPinned,
+  quoteTransport = null,
 } = {}) {
+  const quoteMode = parseQuoteTransportOption(quoteTransport);
   const base = normalizeOrigin(origin);
   if (!isPlainObject(x402Document)) throw new Error("x402 OpenAPI document is required");
   const method = String(requestedMethod).toUpperCase();
@@ -789,6 +839,9 @@ export async function auditIntegrity({
   if (requestedRoute !== null && routeNames.length === 0) throw new Error(`exact paid ${method} route was not declared`);
   if (routeNames.length > maxRoutes) throw new Error(`paid ${method} route count exceeds ${maxRoutes}`);
   const routes = [];
+  const addRoute = (entry, observation) => routes.push(
+    quoteMode === null ? entry : { ...entry, quoteTransport: observation },
+  );
 
   for (const route of routeNames) {
     const operation = xOperations.get(route) || mppOperations.get(route);
@@ -815,7 +868,7 @@ export async function auditIntegrity({
       });
       if (purchaseEvidence.status === "invalid") findings.push(`purchase_evidence_${purchaseEvidence.reason}`);
       if (requirePurchaseEvidence && purchaseEvidence.status !== "verified") findings.push("purchase_evidence_required");
-      routes.push({
+      addRoute({
         method,
         route,
         status: null,
@@ -833,7 +886,7 @@ export async function auditIntegrity({
         responseContract,
         repairPlan,
         purchaseEvidence,
-      });
+      }, unverifiedQuote("post_not_probed"));
       continue;
     }
     let target;
@@ -841,7 +894,7 @@ export async function auditIntegrity({
     try {
       ({ url: target, queryKeys } = buildAuditTarget(base, route, operation));
     } catch (error) {
-      routes.push({
+      addRoute({
         method,
         route,
         status: null,
@@ -851,15 +904,18 @@ export async function auditIntegrity({
         probe: { attempted: false, reason: "target_not_constructible" },
         findings: [`target_invalid:${error.message}`],
         protocols: [],
-      });
+      }, unverifiedQuote("target_not_constructible"));
       continue;
     }
 
     let response;
     try {
-      response = await requestImpl(target, { accept: "application/json" });
+      response = await requestImpl(target, {
+        accept: "application/json",
+        ...(quoteMode !== null && { observeQuoteTransport: true }),
+      });
     } catch {
-      routes.push({ method, route, status: null, queryKeys, valid: false, runtimeChallengeVerified: false, probe: { attempted: true, reason: "request_failed" }, findings: ["credential_free_probe_failed"], protocols: [] });
+      addRoute({ method, route, status: null, queryKeys, valid: false, runtimeChallengeVerified: false, probe: { attempted: true, reason: "request_failed" }, findings: ["credential_free_probe_failed"], protocols: [] }, unverifiedQuote("request_failed"));
       continue;
     }
     if (response.status !== 402) findings.push(`expected_402_received_${response.status}`);
@@ -877,7 +933,8 @@ export async function auditIntegrity({
     if (purchaseEvidence.status === "invalid") findings.push(`purchase_evidence_${purchaseEvidence.reason}`);
     if (requirePurchaseEvidence && purchaseEvidence.status !== "verified") findings.push("purchase_evidence_required");
 
-    const x402 = parseX402Challenge(response.headers?.["payment-required"] || response.headers?.["x-payment-required"]);
+    const x402Header = response.headers?.["payment-required"] || response.headers?.["x-payment-required"];
+    const x402 = parseX402Challenge(x402Header);
     const mpp = parseMppChallenges(response.headers?.["www-authenticate"]);
     const protocols = [];
     let bazaarObservation = { present: false, valid: null };
@@ -916,7 +973,7 @@ export async function auditIntegrity({
       if (declaredX402 && !equivalentEconomics(declaredX402, xOffer)) findings.push("x402_declaration_runtime_mismatch");
     }
 
-    routes.push({
+    addRoute({
       method,
       route,
       status: response.status,
@@ -936,7 +993,7 @@ export async function auditIntegrity({
       responseContract,
       repairPlan,
       purchaseEvidence,
-    });
+    }, quoteMode === null ? null : observeQuoteLine(response, x402Header, x402, quoteMode));
   }
 
   const invalidRoutes = routes.filter((entry) => !entry.valid).length;
@@ -973,6 +1030,11 @@ export async function auditIntegrity({
       queryValuesRetained: false,
     },
     policy: { requireBazaar, requirePurchaseEvidence },
+    ...(quoteMode !== null && { quoteTransport: {
+      maxLineBytes: quoteMode === "measure" ? null : quoteMode,
+      ok: routes.length > 0 && routes.every(({ quoteTransport: { status } }) =>
+        status === "measured" || status === "within_budget"),
+    } }),
     boundary: "Unpaid point-in-time contract integrity only. No claim about settlement, paid delivery, catalog indexing, identity, or future availability.",
   };
 }
@@ -989,7 +1051,9 @@ export async function auditOrigin({
   method = "GET",
   requiredPaths = [],
   maxRoutes = DEFAULT_MAX_ROUTES,
+  quoteTransport = null,
 } = {}) {
+  const quoteMode = parseQuoteTransportOption(quoteTransport);
   const base = normalizeOrigin(origin);
   const requestOptions = { userAgent: "agent-payment-integrity/0.1", publicDns };
   const x402Result = await fetchJsonResponse(new URL(x402Path, base), { requestImpl, requestOptions });
@@ -1034,6 +1098,7 @@ export async function auditOrigin({
     method,
     requiredPaths,
     maxRoutes,
+    quoteTransport: quoteMode,
     requestImpl: boundRequest,
   });
   report.safety.dnsMode = publicDns ? "explicit-public-doh" : "system-resolver";
@@ -1107,12 +1172,32 @@ export function toSarif(report) {
     message: { text: `${route.method || "GET"} ${route.route}: ${finding}` },
     locations: [{ physicalLocation: { artifactLocation: { uri: report.origin + route.route } } }],
   })));
+  const quoteTransport = report.quoteTransport;
+  if (quoteTransport) {
+    for (const route of report.routes) {
+      const { status, reason, lineBytes } = route.quoteTransport;
+      if (status !== "over_budget" && status !== "unverified") continue;
+      const detail = status === "over_budget"
+        ? `${lineBytes} bytes exceeds ${quoteTransport.maxLineBytes}`
+        : reason;
+      results.push({
+        ruleId: `x402_quote_transport_${status}`,
+        level: "error",
+        message: { text: `${route.method} ${route.route}: x402 quote transport ${status} (${detail})` },
+        locations: [{ physicalLocation: { artifactLocation: { uri: report.origin + route.route } } }],
+      });
+    }
+  }
   return {
     version: "2.1.0",
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [{
       tool: { driver: { name: "agent-payment-integrity", version: TOOL_VERSION, rules: [] } },
       results,
+      ...(quoteTransport && { properties: { quoteTransport: {
+        ...quoteTransport,
+        routes: report.routes.map(({ method, route, quoteTransport }) => ({ method, route, ...quoteTransport })),
+      } } }),
     }],
   };
 }
