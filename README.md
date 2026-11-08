@@ -97,6 +97,17 @@ The report therefore keeps `runtimeChallengeVerified: false` and
 triggering an arbitrary seller action while still identifying missing or
 underconstrained success fields. GET audits retain the live unpaid 402 probe.
 
+### Explicit MPP-only routes
+
+An OpenAPI operation that declares MPP without x402 is audited against its
+unpaid Payment challenges, not required to send an x402 header. The report
+retains all normalized MPP options for this case. Exact declared Tempo/EVM
+offers must match a live option on method, intent, atomic amount, token,
+recipient and any explicitly declared network. An omitted declaration
+network does not establish chain agreement. Legacy and dual-rail checks
+are unchanged; the x402 transport budget and Bazaar requirement remain
+x402-specific. An unsigned offer is not payment authorization or delivery.
+
 ### Optional x402 quote transport budget
 
 ```bash

@@ -429,6 +429,54 @@ test("fails the entire mixed x402 challenge when one network-family identifier i
   }
 });
 
+test("MPP-only GET retains every exact Tempo offer without requiring an x402 header", async () => {
+  const ousd = "0x20c0000000000000000000006a37DA5C996874BE";
+  const usdc = "0x20C000000000000000000000b9537d11c60E8b50";
+  const op = documents().x402Document;
+  op.paths["/read"].get["x-payment-info"] = { offers: [
+    { method: "tempo", intent: "charge", amount: "5000", currency: ousd, recipient: RECIPIENT },
+  ] };
+  const header = (currency, chainId = 4217, realm = "example.com") => {
+    const request = Buffer.from(JSON.stringify({
+      currency, recipient: RECIPIENT, amount: "5000", methodDetails: { chainId, feePayer: true },
+    })).toString("base64url");
+    return 'Payment id="fixture", realm="' + realm + '", method="tempo", intent="charge", request="' +
+      request + '", expires="2099-08-10T00:00:00.000Z", opaque="not_public"';
+  };
+  const run = (headers, extra = {}) => auditIntegrity({
+    origin: "https://example.com", x402Document: op, route: "/read",
+    requestImpl: async () => ({ status: 402, headers, body: Buffer.alloc(0) }), ...extra,
+  });
+  const good = { "www-authenticate": [header(usdc), header(ousd)].join(", ") };
+  const report = await run(good);
+  assert.equal(report.ok, true);
+  assert.equal(report.routes[0].runtimeChallengeVerified, true);
+  assert.deepEqual(report.routes[0].protocols, ["mpp"]);
+  assert.deepEqual(report.routes[0].economics.mppOffers.map(o => [o.network, o.asset]),
+    [["eip155:4217", usdc.toLowerCase()], ["eip155:4217", ousd.toLowerCase()]]);
+  assert.equal(JSON.stringify(report).includes("not_public"), false);
+  for (const headers of [{}, { "www-authenticate": header(ousd, "4217") },
+    { "www-authenticate": header(ousd, 4217, "another.example") },
+    { "www-authenticate": header(ousd).replace('Payment id="fixture"', 'Basic id="fixture"') },
+    { "www-authenticate": header(ousd).replace('id="fixture"', 'id="first", id="duplicate"') }]) {
+    const invalid = await run(headers);
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.routes[0].runtimeChallengeVerified, false);
+  }
+  const wrongAsset = await run({ "www-authenticate": header(usdc) });
+  assert.ok(wrongAsset.routes[0].findings.includes("mpp_declaration_runtime_mismatch"));
+  assert.equal(wrongAsset.routes[0].runtimeChallengeVerified, true);
+  const wrongChain = structuredClone(op);
+  wrongChain.paths["/read"].get["x-payment-info"].offers[0].methodDetails = { chainId: 42431 };
+  assert.ok((await run(good, { x402Document: wrongChain })).routes[0].findings.includes("mpp_declaration_runtime_mismatch"));
+  const malformedX402 = await run({ ...good, "payment-required": "bad" });
+  assert.equal(malformedX402.ok, false);
+  assert.equal((await run(good, { requireBazaar: true })).ok, false);
+  const strict = await run(good, { quoteTransport: 8190 });
+  assert.equal(strict.quoteTransport.ok, false);
+  assert.equal(strict.routes[0].quoteTransport.reason, "raw_headers_unavailable");
+});
+
 test("passes a dual-rail declaration bound to the full runtime request", async () => {
   const report = await auditIntegrity({
     origin: "https://example.com",

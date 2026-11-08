@@ -463,7 +463,9 @@ function parseQuotedParameters(value) {
   const pattern = /([A-Za-z][A-Za-z0-9_-]*)="((?:[^"\\]|\\.)*)"/g;
   let match;
   while ((match = pattern.exec(source))) {
-    parameters[match[1].toLowerCase()] = match[2].replace(/\\(["\\])/g, "$1");
+    const key = match[1].toLowerCase();
+    if (Object.hasOwn(parameters, key)) throw new Error("duplicate MPP challenge parameter");
+    parameters[key] = match[2].replace(/\\(["\\])/g, "$1");
   }
   return parameters;
 }
@@ -475,14 +477,20 @@ export function parseMppChallenges(header) {
     }
     const segments = header.split(/,\s*(?=Payment\s)/i).filter(Boolean);
     const offers = segments.map((segment) => {
+      if (!/^\s*Payment\s/i.test(segment)) throw new Error("unsupported MPP challenge scheme");
       const params = parseQuotedParameters(segment);
-      if (!params.request || !params.method || !params.intent || !params.realm || !params.expires) {
+      if (!params.id || !params.request || !params.method || !params.intent || !params.realm || !params.expires) {
         throw new Error("MPP challenge parameters missing");
       }
       const expiresAt = Date.parse(params.expires);
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error("MPP challenge expired");
       const request = decodeJsonBase64(params.request);
-      const network = request.network || (request?.methodDetails?.chainId ? `eip155:${request.methodDetails.chainId}` : null);
+      const chainId = request?.methodDetails?.chainId;
+      const explicitNetwork = Number.isSafeInteger(chainId) && chainId > 0 ? `eip155:${chainId}` : null;
+      if (params.method.toLowerCase() === "tempo" && (!explicitNetwork || (request.network && request.network !== explicitNetwork))) {
+        throw new Error("Tempo challenge needs an explicit consistent chain ID");
+      }
+      const network = request.network || (chainId ? `eip155:${chainId}` : null);
       const economics = normalizeEconomics({
         ...request,
         network,
@@ -590,6 +598,22 @@ function declaredMppOffers(operation) {
     recipient: offer.recipient ?? offer.payTo,
     decimals: offer?.methodDetails?.decimals,
   })).filter(validEconomics);
+}
+
+function explicitMppOfferMatches(declaration, observed) {
+  const method = declaration.method.toLowerCase();
+  const chainId = declaration.methodDetails?.chainId;
+  const network = chainId === undefined
+    ? declaration.network
+    : Number.isSafeInteger(chainId) && chainId > 0 ? `eip155:${chainId}` : null;
+  if (chainId !== undefined && (!network || (declaration.network !== undefined && declaration.network !== network))) return false;
+  if (network !== undefined && !normalizeNetwork(network, { requireReference: true })) return false;
+  // No declaration-side default: a missing network does not bind a chain.
+  const expected = normalizeEconomics({
+    ...declaration, network: network ?? observed.network, decimals: declaration.methodDetails?.decimals,
+  }, { requireNetworkReference: true });
+  return validEconomics(expected) && method === observed.method && expected.intent === observed.intent &&
+    equivalentEconomics(expected, observed);
 }
 
 function paidOperations(document, method) {
@@ -846,6 +870,12 @@ export async function auditIntegrity({
 
   for (const route of routeNames) {
     const operation = xOperations.get(route) || mppOperations.get(route);
+    const declaredProtocols = new Set([
+      ...advertisedProtocols(xOperations.get(route)),
+      ...advertisedProtocols(mppOperations.get(route)),
+    ]);
+    // Preserve the legacy x402 expectation for unidentified declarations.
+    const mppOnly = declaredProtocols.has("mpp") && !declaredProtocols.has("x402") && !requireBazaar;
     const findings = [];
     const responseContract = responseContractReport(base, route, method, operation);
     const repairPlan = responseContractRepairPlan(operation, normalizedRequiredPaths, responseContract.requiredPaths);
@@ -934,14 +964,15 @@ export async function auditIntegrity({
     if (purchaseEvidence.status === "invalid") findings.push(`purchase_evidence_${purchaseEvidence.reason}`);
     if (requirePurchaseEvidence && purchaseEvidence.status !== "verified") findings.push("purchase_evidence_required");
 
-    const x402Header = response.headers?.["payment-required"] || response.headers?.["x-payment-required"];
+    const x402Header = response.headers?.["payment-required"] ?? response.headers?.["x-payment-required"];
     const x402 = parseX402Challenge(x402Header);
     const mpp = parseMppChallenges(response.headers?.["www-authenticate"]);
     const protocols = [];
     let bazaarObservation = { present: false, valid: null };
 
-    if (x402.error) findings.push(x402.errorCode || "x402_challenge_invalid");
-    else {
+    if (x402.error) {
+      if (!mppOnly || x402Header !== undefined) findings.push(x402.errorCode || "x402_challenge_invalid");
+    } else {
       protocols.push("x402");
       const resourceUrl = x402.payload?.resource?.url;
       if (!resourceBindsTarget(resourceUrl, target, base)) findings.push("x402_full_request_binding_mismatch");
@@ -954,7 +985,7 @@ export async function auditIntegrity({
     }
 
     const mppDeclared = declaredMppOffers(mppOperations.get(route));
-    const expectsMpp = mppOperations.has(route) || mppDeclared.length > 0;
+    const expectsMpp = declaredProtocols.has("mpp") || mppOperations.has(route) || mppDeclared.length > 0;
     if (mpp.error) {
       if (expectsMpp) findings.push("mpp_challenge_invalid");
     } else {
@@ -964,7 +995,16 @@ export async function auditIntegrity({
       }
     }
 
-    if (!x402.error && !mpp.error) {
+    if (mppOnly && !mpp.error) {
+      const explicit = [xOperations.get(route), mppOperations.get(route)]
+        .flatMap((op) => Array.isArray(op?.["x-payment-info"]?.offers) ? op["x-payment-info"].offers : [])
+        .filter((offer) => typeof offer?.method === "string" && ["tempo", "evm"].includes(offer.method.toLowerCase()));
+      if (explicit.some((declaration) => !mpp.offers.some((offer) => explicitMppOfferMatches(declaration, offer)))) {
+        findings.push("mpp_declaration_runtime_mismatch");
+      }
+    }
+
+    if (!mppOnly && !x402.error && !mpp.error) {
       const xOffer = x402.accepts[0];
       const evmOffer = mpp.offers.find((offer) => offer.method === "evm") || mpp.offers[0];
       if (!equivalentEconomics(xOffer, evmOffer)) findings.push("x402_mpp_economics_mismatch");
@@ -980,13 +1020,15 @@ export async function auditIntegrity({
       status: response.status,
       queryKeys,
       valid: findings.length === 0,
-      runtimeChallengeVerified: response.status === 402,
+      runtimeChallengeVerified: response.status === 402 && (!mppOnly ||
+        (!mpp.error && mpp.offers.every((offer) => offer.realm === base.hostname.toLowerCase()))),
       probe: { attempted: true, reason: null },
       findings,
       protocols: [...new Set(protocols)].sort(),
       economics: {
         x402: x402.error ? null : publicEconomics(x402.accepts[0]),
         mpp: mpp.error ? null : publicEconomics(mpp.offers.find((offer) => offer.method === "evm") || mpp.offers[0]),
+        ...(mppOnly && { mppOffers: mpp.error ? [] : mpp.offers.map(publicEconomics) }),
       },
       discovery: {
         bazaar: bazaarObservation,
