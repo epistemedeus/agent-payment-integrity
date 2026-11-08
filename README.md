@@ -69,6 +69,11 @@ it verifies the manifest digest and exact operation, then cross-checks the
 manifest's schema digest and complete required-path set against the current
 OpenAPI declaration. A generic unrelated `describedby` link is ignored.
 
+A matching seller manifest does not mean the route meets your requested
+output. If a caller-required path is missing, the audit still fails for that
+path. The manifest can remain verified when it accurately describes the
+seller's narrower contract.
+
 Use `scaffold` when a source-owning seller needs a conservative starting
 manifest rather than only a verifier. It emits a deterministic manifest from a
 passing audit, copies only the exact method, path, response-schema digest,
