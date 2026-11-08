@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import packageMetadata from "./package.json" with { type: "json" };
 
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { PURCHASE_EVIDENCE_RELATION, createPurchaseEvidenceManifest } from "agent-payment-policy";
@@ -411,7 +412,7 @@ test("fails the entire mixed x402 challenge when one network-family identifier i
   const cases = [
     ["missing non-EVM recipient", 10, (offer) => { delete offer.payTo; }],
     ["whitespace identifier", 10, (offer) => { offer.asset = "EPjF Wdd5"; }],
-    ["control identifier", 11, (offer) => { offer.asset = "USDC\u0000"; }],
+    ["control identifier", 11, (offer) => { offer.asset = "USDC^@"; }],
     ["trailing newline identifier", 11, (offer) => { offer.asset = "USDC\n"; }],
     ["oversized identifier", 12, (offer) => { offer.asset = "A".repeat(257); }],
     ["malformed EVM recipient", 0, (offer) => { offer.payTo = "0x1234"; }],
@@ -905,7 +906,7 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   const sarif = toSarif(report);
   assert.equal(sarif.version, "2.1.0");
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
-  assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.12");
+  assert.equal(sarif.runs[0].tool.driver.version, packageMetadata.version);
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
 });
 
