@@ -623,6 +623,22 @@ test("requires exact runtime-linked purchase evidence and binds it to current Op
     declaration: "seller_declared",
   });
 
+  // A verified seller manifest describes the seller's actual contract. It
+  // does not guarantee that contract satisfies every caller's requested paths.
+  const unmet = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requiredPaths: ["data.missing"],
+    requirePurchaseEvidence: true,
+    requestImpl: requestFixture({ link }),
+    purchaseEvidenceLoader: async () => manifest,
+  });
+  assert.equal(unmet.ok, false);
+  assert.equal(unmet.machineBuyable, false);
+  assert.equal(unmet.routes[0].valid, false);
+  assert.deepEqual(unmet.routes[0].findings, ["seller_response_required_path_missing:data.missing"]);
+  assert.deepEqual(unmet.routes[0].purchaseEvidence, verified.routes[0].purchaseEvidence);
+
   const unrelated = await auditIntegrity({
     origin: "https://example.com",
     ...documents(),
@@ -751,6 +767,24 @@ test("verifies POST purchase evidence from the free OpenAPI entry point without 
   assert.equal(report.machineBuyable, false);
   assert.equal(report.routes[0].purchaseEvidence.status, "verified");
   assert.equal(report.routes[0].purchaseEvidence.source, "openapi_entrypoint");
+
+  const unmet = await auditIntegrity({
+    origin: "https://api.example.com",
+    ...declared,
+    method: "POST",
+    route: "/simulate",
+    requiredPaths: ["data.attributes", "data.missing"],
+    requirePurchaseEvidence: true,
+    purchaseEvidenceLink: `<${manifestUrl}>; rel="describedby ${PURCHASE_EVIDENCE_RELATION}"`,
+    purchaseEvidenceLoader: async () => manifest,
+    requestImpl: async () => { sellerRequests += 1; throw new Error("must not send seller POST"); },
+  });
+  assert.equal(sellerRequests, 0);
+  assert.equal(unmet.ok, false);
+  assert.equal(unmet.machineBuyable, false);
+  assert.equal(unmet.routes[0].valid, false);
+  assert.deepEqual(unmet.routes[0].findings, ["seller_response_required_path_missing:data.missing"]);
+  assert.deepEqual(unmet.routes[0].purchaseEvidence, report.routes[0].purchaseEvidence);
 });
 
 test("returns bounded repair actions without inventing missing property types", async () => {

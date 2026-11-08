@@ -664,7 +664,6 @@ async function purchaseEvidenceObservation({
   base,
   target,
   method,
-  requiredPaths,
   responseContract,
   linkHeader,
   manifestLoader,
@@ -690,10 +689,10 @@ async function purchaseEvidenceObservation({
     const operation = manifest.operations.find((entry) => entry.method === method && entry.path === target.pathname);
     const declaredPaths = [...operation.output.requiredPaths].sort();
     const currentPaths = [...responseContract.requiredPaths].sort();
+    // Caller requirements are checked independently by auditIntegrity.
     if (
       binding.responseSchemaDigest !== responseContract.schemaDigest
       || JSON.stringify(declaredPaths) !== JSON.stringify(currentPaths)
-      || !requiredPaths.every((path) => declaredPaths.includes(path))
     ) {
       throw new Error("purchase evidence response schema digest or required paths changed");
     }
@@ -809,7 +808,6 @@ export async function auditIntegrity({
         base,
         target,
         method,
-        requiredPaths: normalizedRequiredPaths,
         responseContract,
         linkHeader: purchaseEvidenceLink,
         manifestLoader: purchaseEvidenceLoader,
@@ -871,7 +869,6 @@ export async function auditIntegrity({
       base,
       target,
       method,
-      requiredPaths: normalizedRequiredPaths,
       responseContract,
       linkHeader: livePurchaseLink,
       manifestLoader: purchaseEvidenceLoader,
