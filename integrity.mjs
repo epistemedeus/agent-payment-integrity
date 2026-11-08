@@ -329,13 +329,26 @@ function validEconomics(economics) {
   );
 }
 
+function offerForProtocolValidation(offer) {
+  const network = normalizeNetwork(offer?.network, { requireReference: true })?.value;
+  // Core 2.29 requires canonical CAIP-2. Recognize the observed legacy Algorand
+  // mainnet hash as an exact alias, keeping the original wire value in reports.
+  if (network === "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=") {
+    return { ...offer, network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k" };
+  }
+  return network && network !== offer.network ? { ...offer, network } : offer;
+}
+
 export function parseX402Challenge(header) {
   try {
     const payload = decodeJsonBase64(header);
     if (payload?.x402Version !== 2 || !Array.isArray(payload.accepts) || payload.accepts.length === 0) {
       throw new Error("unsupported x402 challenge");
     }
-    const paymentRequired = parsePaymentRequired(payload);
+    const paymentRequired = parsePaymentRequired({
+      ...payload,
+      accepts: payload.accepts.map(offerForProtocolValidation),
+    });
     if (!paymentRequired.success) {
       return {
         error: "x402 PaymentRequired failed the official protocol schema",

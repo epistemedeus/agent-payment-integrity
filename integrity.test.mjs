@@ -304,6 +304,30 @@ test("parses a frozen Base, Solana, Stellar, and Algorand x402 v2 challenge by n
   const normalized = parseX402Challenge(Buffer.from(JSON.stringify(namespaceCase)).toString("base64url"));
   assert.equal(normalized.accepts[0].network, "eip155:8453");
   assert.equal(normalized.accepts[10].network, "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp");
+  assert.deepEqual(normalized.payload, namespaceCase);
+});
+
+test("keeps official validation around the exact legacy Algorand mainnet alias", () => {
+  const challenge = structuredClone(FROZEN_MULTICHAIN_X402_V2_CHALLENGE);
+  const legacyOffer = challenge.accepts.at(-1);
+  const canonicalNetwork = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k";
+  const parse = (payload) => parseX402Challenge(Buffer.from(JSON.stringify(payload)).toString("base64url"));
+  const canonical = parse({ ...challenge, accepts: [{ ...legacyOffer, network: canonicalNetwork }] });
+  assert.equal(canonical.accepts[0].network, canonicalNetwork);
+
+  const legacy = parse({ ...challenge, accepts: [legacyOffer] });
+  assert.equal(legacy.accepts[0].network, legacyOffer.network);
+  assert.equal(legacy.payload.accepts[0].network, legacyOffer.network);
+
+  for (const invalid of [
+    { accepts: [{ ...legacyOffer, network: legacyOffer.network.replace("kit8=", "kit4=") }] },
+    { accepts: [{ ...legacyOffer, maxTimeoutSeconds: 0 }] },
+    { accepts: Array(1025).fill(legacyOffer) },
+    { resource: { description: "missing required URL" } },
+    { extensions: [] },
+  ]) {
+    assert.equal(parse({ ...challenge, ...invalid }).errorCode, "x402_payment_required_schema_invalid");
+  }
 });
 
 test("audits the frozen multichain PAYMENT-REQUIRED header with a zero-byte body", async () => {
