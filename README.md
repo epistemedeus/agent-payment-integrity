@@ -209,6 +209,17 @@ package also includes `skills/agent-payment-integrity/SKILL.md`. GitHub
 sellers who want a workflow pin should use the composite action above rather
 than copying clone steps into application CI.
 
+## When the check does not resolve a release
+
+For a checker bug, [open a GitHub issue](https://github.com/epistemedeus/agent-payment-integrity/issues/new)
+with a public or synthetic reproduction. For help reproducing or repairing a
+specific release in your own stack, use the email under **Official identity**
+in the [SameDayDesk machine guide](https://samedaydesk.com/llms.txt). Include the
+HTTP method, redacted route, client and version, one expected result, one
+observed failure, and the checker's version and finding code if available.
+Do not include credentials, payment proofs, or private inputs. A finding
+does not submit an inquiry, commission work, or authorize a retry.
+
 ## Candidate status
 
 This is a reference candidate, not a catalog-indexing guarantee or paid-service

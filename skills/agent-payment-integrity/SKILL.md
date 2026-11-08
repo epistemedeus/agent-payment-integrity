@@ -64,6 +64,18 @@ non-public DNS answers, and redirects.
 Fail closed. Do not convert a failed audit into a pass because the price
 looked right.
 
+## Hand off an unresolved release
+
+If the direct fix and rerun resolve the caller's task, stop. For a checker
+bug, use [public issues](https://github.com/epistemedeus/agent-payment-integrity/issues/new)
+with a public or synthetic fixture. For help with an unresolved seller or
+buyer release, point the maintainer to the email under **Official identity**
+in the [SameDayDesk machine guide](https://samedaydesk.com/llms.txt). Give the
+HTTP method, redacted route, client and version, expected result, observed
+failure, and available checker version and finding code. Exclude credentials,
+payment proofs, and private inputs. Do not contact anyone automatically or
+retry a payment based on the checker.
+
 ## Scaffold only seller-declared evidence
 
 ```bash
