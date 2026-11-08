@@ -622,6 +622,24 @@ test("requires exact runtime-linked purchase evidence and binds it to current Op
     requiredPaths: contract.requiredPaths,
     declaration: "seller_declared",
   });
+  const transport = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    requirePurchaseEvidence: true,
+    quoteTransport: 1,
+    requestImpl: async (url) => {
+      const response = await requestFixture({ link })(url);
+      return { ...response, quoteFields: ["Payment-Required", response.headers["payment-required"]] };
+    },
+    purchaseEvidenceLoader: async () => manifest,
+  });
+  assert.equal(transport.quoteTransport.ok, false);
+  const { quoteTransport, ...contractRoute } = transport.routes[0];
+  assert.equal(quoteTransport.status, "over_budget");
+  assert.deepEqual(contractRoute, {
+    ...verified.routes[0],
+    responseContract: { ...verified.routes[0].responseContract, evaluatedAt: contractRoute.responseContract.evaluatedAt },
+  });
 
   // A verified seller manifest describes the seller's actual contract. It
   // does not guarantee that contract satisfies every caller's requested paths.
@@ -889,4 +907,94 @@ test("emits SARIF with controlled findings and no raw headers", async () => {
   assert.equal(sarif.runs[0].results[0].ruleId, "x402_full_request_binding_mismatch");
   assert.equal(sarif.runs[0].tool.driver.version, "0.1.0-candidate.12");
   assert.equal(JSON.stringify(sarif).includes("payment-required"), false);
+});
+
+test("quote transport separates the 12,436-byte quote from the contract verdict", async () => {
+  const calls = [];
+  const requestImpl = async (url, options) => {
+    calls.push({ url: url.href, options });
+    const response = await requestFixture()(url);
+    const payload = JSON.parse(Buffer.from(response.headers["payment-required"], "base64url"));
+    payload.resource.description = "synthetic-padding:";
+    payload.resource.description += "a".repeat(9_327 - Buffer.byteLength(JSON.stringify(payload)));
+    const value = Buffer.from(JSON.stringify(payload)).toString("base64");
+    assert.equal(value.length, 12_436);
+    return {
+      ...response,
+      headers: { ...response.headers, "payment-required": value },
+      quoteFields: ["PAYMENT-REQUIRED", value],
+    };
+  };
+  const options = { origin: "https://example.com", ...documents(), requireBazaar: true, requestImpl };
+  const baseline = await auditIntegrity(options);
+  assert.equal(baseline.ok, true);
+  assert.equal(baseline.routes[0].runtimeChallengeVerified, true);
+  assert.equal("quoteTransport" in baseline, false);
+  assert.equal("quoteTransport" in baseline.routes[0], false);
+  const gated = await auditIntegrity({ ...options, quoteTransport: 8_190 });
+  assert.deepEqual(gated.quoteTransport, { maxLineBytes: 8_190, ok: false });
+  const { quoteTransport, ...contract } = gated.routes[0];
+  assert.deepEqual(contract, {
+    ...baseline.routes[0],
+    responseContract: { ...baseline.routes[0].responseContract, evaluatedAt: contract.responseContract.evaluatedAt },
+  });
+  assert.equal(gated.ok, true);
+  assert.deepEqual(quoteTransport, { status: "over_budget", headerName: "payment-required", lineBytes: 12_454 });
+  assert.deepEqual(calls.map(({ options }) => options.observeQuoteTransport), [undefined, true]);
+  assert.doesNotMatch(JSON.stringify(gated), /synthetic-padding|YWFhYWFhYWFhYWFh/);
+  const run = toSarif(gated).runs[0];
+  assert.equal(run.results[0].ruleId, "x402_quote_transport_over_budget");
+  assert.equal(run.properties.quoteTransport.routes[0].lineBytes, 12_454);
+});
+
+test("quote transport measures the alternate header and distinguishes missing, invalid and ambiguous evidence", async () => {
+  const options = { origin: "https://example.com", ...documents(), quoteTransport: "measure" };
+  for (const [name, fixture, expected] of [
+    ["alternate", (value) => ["X-Payment-Required", value], { status: "measured", headerName: "x-payment-required" }],
+    ["missing", () => [], { status: "unverified", reason: "field_missing" }],
+    ["raw unavailable", () => undefined, { status: "unverified", reason: "raw_headers_unavailable" }],
+    ["duplicates", (value) => ["Payment-Required", value, "PAYMENT-REQUIRED", value], { status: "unverified", reason: "multiple_fields" }],
+    ["aliases", (value) => ["Payment-Required", value, "X-Payment-Required", value], { status: "unverified", reason: "multiple_fields" }],
+    ["malformed", (value) => ["X-Payment-Required", value + ","], { status: "unverified", reason: "field_invalid", headerName: "x-payment-required" }],
+    ["non-ASCII", (value) => ["X-Payment-Required", value + "é"], { status: "unverified", reason: "field_invalid", headerName: "x-payment-required" }],
+  ]) {
+    const report = await auditIntegrity({
+      ...options,
+      requestImpl: async (url) => {
+        const response = await requestFixture()(url);
+        const value = response.headers["payment-required"];
+        const quoteFields = fixture(value);
+        if (expected.headerName) {
+          delete response.headers["payment-required"];
+          response.headers[expected.headerName] = quoteFields[1];
+          expected.lineBytes = expected.headerName.length + 2 + quoteFields[1].length;
+        }
+        return { ...response, quoteFields };
+      },
+    });
+    assert.deepEqual(report.routes[0].quoteTransport, expected, name);
+    assert.deepEqual(report.quoteTransport, { maxLineBytes: null, ok: expected.status === "measured" }, name);
+  }
+});
+
+test("quote transport fails closed for contract-only POST and unobserved GET", async () => {
+  const post = await auditIntegrity({
+    origin: "https://example.com",
+    ...postDocuments({ requireAttributes: true }),
+    method: "POST",
+    quoteTransport: 8_190,
+    requestImpl: async () => assert.fail("must not send POST"),
+  });
+  assert.equal(post.ok, true);
+  assert.equal(post.routes[0].runtimeChallengeVerified, false);
+  assert.deepEqual(post.routes[0].quoteTransport, { status: "unverified", reason: "post_not_probed" });
+  assert.equal(post.quoteTransport.ok, false);
+  const get = await auditIntegrity({
+    origin: "https://example.com",
+    ...documents(),
+    quoteTransport: 8_190,
+    requestImpl: async () => { throw new Error("unavailable"); },
+  });
+  assert.deepEqual(get.routes[0].quoteTransport, { status: "unverified", reason: "request_failed" });
+  assert.equal(get.quoteTransport.ok, false);
 });

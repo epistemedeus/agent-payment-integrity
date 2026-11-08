@@ -97,6 +97,33 @@ The report therefore keeps `runtimeChallengeVerified: false` and
 triggering an arbitrary seller action while still identifying missing or
 underconstrained success fields. GET audits retain the live unpaid 402 probe.
 
+### Optional x402 quote transport budget
+
+```bash
+node cli.mjs audit --origin https://seller.example --route /read --quote-transport measure
+node cli.mjs audit --origin https://seller.example --route /read --quote-transport 8190 --format json
+```
+
+Use `measure` to record a size without a limit, or choose a budget of 1 to
+65536 bytes for seller CI. The Action accepts the same optional
+`quote-transport` input. The audit counts the observed encoded x402 value
+and its actual field name, plus the two bytes in `: `. This is the canonical
+HTTP/1.1 line size before its CRLF terminator. Node's parser strips surrounding
+optional whitespace. The count excludes other headers and HTTP/2 framing.
+
+JSON and SARIF retain a separate `quoteTransport` result. A budget failure,
+missing or ambiguous field, unreadable quote, or unprobed POST exits nonzero
+when this check is requested. The existing JSON `ok` and route findings
+continue to describe the contract audit. A size fit establishes fit to the
+chosen budget only. Choose a limit for your buyers and ingress. The example
+8190 is a conservative full-line budget, independent of any client's parser
+settings.
+
+The unpaid check ends at the response. For paid-retry coverage, test the
+actual buyer SDK with a stub signer and your local seller ingress limits,
+including the whole inbound request header block. See the separate [x402
+retry example](https://github.com/x402-foundation/x402/issues/3803#issuecomment-6726883152).
+
 CI sandboxes that intentionally synthesize public DNS into reserved addresses
 can add `--public-dns`. That explicit mode resolves through DNS-over-HTTPS and
 still pins a public result into the TLS request. The default honors the system

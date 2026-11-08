@@ -2,13 +2,13 @@
 
 import fs from "node:fs/promises";
 
-import { auditOrigin, createPurchaseEvidenceScaffold, toSarif } from "./integrity.mjs";
+import { auditOrigin, createPurchaseEvidenceScaffold, parseQuoteTransportOption, toSarif } from "./integrity.mjs";
 
 function usage() {
   return `agent-payment-integrity
 
 Usage:
-  agent-payment-integrity audit --origin https://seller.example [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar] [--require-purchase-evidence]
+  agent-payment-integrity audit --origin https://seller.example [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--format json|text|sarif] [--out path] [--public-dns] [--require-bazaar] [--require-purchase-evidence] [--quote-transport measure|BYTES]
   agent-payment-integrity scaffold --origin https://seller.example --service-version 1.0.0 [--method GET|POST] [--route /exact-path] [--required-paths data.attributes,data.type] [--max-routes 64] [--out path] [--public-dns] [--assert-read-only-post]
 
 GET audits perform a credential-free unpaid challenge probe. POST audits inspect
@@ -22,14 +22,32 @@ function option(name, fallback = undefined) {
   return index >= 0 ? process.argv[index + 1] : fallback;
 }
 
+function quoteTransportOption() {
+  const flag = "--quote-transport";
+  const args = process.argv.slice(3);
+  const selected = args.filter((arg) => arg === flag || arg.startsWith(`${flag}=`));
+  if (!selected.length) return null;
+  if (selected.length !== 1) throw new Error("--quote-transport may only be set once");
+  const [arg] = selected;
+  return parseQuoteTransportOption(arg === flag ? args[args.indexOf(flag) + 1] ?? "" : arg.slice(flag.length + 1));
+}
+
 function textReport(report) {
   const lines = [
     `${report.ok ? "PASS" : "FAIL"} ${report.origin}`,
     `${report.validRoutes}/${report.routeCount} routes valid`,
   ];
+  if (report.quoteTransport) {
+    const { ok, maxLineBytes } = report.quoteTransport;
+    lines.push(`${ok ? "PASS" : "FAIL"} quote transport (${maxLineBytes === null ? "measurement only" : `${maxLineBytes}-byte budget`})`);
+  }
   for (const route of report.routes) {
     lines.push(`${route.valid ? "PASS" : "FAIL"} ${route.method} ${route.route} [${route.protocols.join("+") || "none"}]${route.runtimeChallengeVerified ? "" : " [runtime unverified]"}`);
     for (const finding of route.findings) lines.push(`  ${finding}`);
+    if (route.quoteTransport) {
+      const { status, reason, headerName, lineBytes } = route.quoteTransport;
+      lines.push(`  x402 quote transport: ${status}${headerName ? ` ${headerName} ${lineBytes} bytes` : ""}${reason ? ` (${reason})` : ""}`);
+    }
   }
   lines.push("No credentials used. No payment signed. No payment sent.");
   return `${lines.join("\n")}\n`;
@@ -44,6 +62,8 @@ async function main() {
   }
   const origin = option("origin");
   if (!origin) throw new Error("--origin is required");
+  const quoteTransport = quoteTransportOption();
+  if (command === "scaffold" && quoteTransport !== null) throw new Error("--quote-transport requires audit");
   const format = option("format", command === "audit" ? "text" : "json");
   if (!["json", "text", "sarif"].includes(format)) throw new Error("--format must be json, text, or sarif");
   if (command === "scaffold" && format !== "json") throw new Error("scaffold format must be json");
@@ -62,6 +82,7 @@ async function main() {
     method,
     requiredPaths,
     maxRoutes: Number(maxRoutesRaw),
+    quoteTransport,
     publicDns: process.argv.includes("--public-dns"),
     requireBazaar: process.argv.includes("--require-bazaar"),
     requirePurchaseEvidence: process.argv.includes("--require-purchase-evidence"),
@@ -79,7 +100,7 @@ async function main() {
   const outputPath = option("out");
   if (outputPath) await fs.writeFile(outputPath, output, { encoding: "utf8", mode: 0o600 });
   else process.stdout.write(output);
-  if (!report.ok) process.exitCode = 1;
+  if (!report.ok || report.quoteTransport?.ok === false) process.exitCode = 1;
 }
 
 main().catch((error) => {
