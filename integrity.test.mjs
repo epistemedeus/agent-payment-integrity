@@ -412,7 +412,7 @@ test("fails the entire mixed x402 challenge when one network-family identifier i
   const cases = [
     ["missing non-EVM recipient", 10, (offer) => { delete offer.payTo; }],
     ["whitespace identifier", 10, (offer) => { offer.asset = "EPjF Wdd5"; }],
-    ["control identifier", 11, (offer) => { offer.asset = "USDC^@"; }],
+    ["control identifier", 11, (offer) => { offer.asset = "USDC\u0000"; }],
     ["trailing newline identifier", 11, (offer) => { offer.asset = "USDC\n"; }],
     ["oversized identifier", 12, (offer) => { offer.asset = "A".repeat(257); }],
     ["malformed EVM recipient", 0, (offer) => { offer.payTo = "0x1234"; }],
