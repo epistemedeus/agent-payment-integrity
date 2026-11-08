@@ -64,4 +64,5 @@ jobs:
           method: GET
           required-paths: ok,url,title
           max-routes: "1"
+          quote-transport: "8190"
           upload-sarif: "false"

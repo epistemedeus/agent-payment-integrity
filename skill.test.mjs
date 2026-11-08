@@ -61,7 +61,11 @@ function packedSkillFromTarball() {
       join(consumer, "node_modules/agent-payment-integrity/skills/agent-payment-integrity/SKILL.md"),
       "utf8",
     );
-    return { listing, installedSkill, filename };
+    const installedVersion = execFileSync(process.execPath, [
+      "--input-type=module", "-e",
+      'import { TOOL_VERSION } from "agent-payment-integrity"; console.log(TOOL_VERSION);',
+    ], { cwd: consumer, encoding: "utf8" }).trim();
+    return { listing, installedSkill, installedVersion, filename };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -81,7 +85,7 @@ test("structural: skill frontmatter, path, and package files are valid", () => {
   assert.match(fields.description, /MPP/);
   assert.match(fields.description, /Do not use for wallets, payment signing, paid probes/);
   assert.doesNotMatch(skill, /\bTODO\b/);
-  assert.ok(body.includes(`agent-payment-integrity ${packageJson.version}`));
+  assert.match(body, /Use the skill and CLI from the same checked-out commit/);
   assert.ok(packageJson.files.includes("skills"));
   assert.match(packageJson.scripts.test, /\*\.test\.mjs/);
   assert.match(readme, /npx skills add epistemedeus\/agent-payment-integrity/);
@@ -118,8 +122,9 @@ test("no-payment: skill and default CLI never sign or send a payment", () => {
 });
 
 test("clean-install: packed package ships the skill and a consumer can read it", { timeout: 120_000 }, () => {
-  const { listing, installedSkill, filename } = packedSkillFromTarball();
-  assert.match(filename, /^agent-payment-integrity-0\.1\.0-candidate\.12\.tgz$/);
+  const { listing, installedSkill, installedVersion, filename } = packedSkillFromTarball();
+  assert.equal(installedVersion, packageJson.version);
+  assert.equal(filename, `${packageJson.name}-${packageJson.version}.tgz`);
   assert.match(listing, /package\/skills\/agent-payment-integrity\/SKILL\.md/);
   assert.doesNotMatch(listing, /package\/skill\.test\.mjs/);
   assert.equal(installedSkill, skill);
