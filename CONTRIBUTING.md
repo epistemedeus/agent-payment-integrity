@@ -19,3 +19,8 @@ workflow must remain `workflow_dispatch` only, must check out an explicit
 full 40-character commit SHA, must verify the resulting `HEAD` before it runs
 the local composite Action with `upload-sarif` false, and must not use secrets,
 wallets, or payments.
+
+For releases, update the version in the package manifest and lockfile.
+The SARIF tool version and packed filename follow the manifest. Keep skill
+instructions tied to the same checkout, not a hard-coded release version.
+Run full CI and the release smoke on the exact candidate tree before tagging.

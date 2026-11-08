@@ -18,9 +18,10 @@ import {
   selectPurchaseEvidenceLink,
   verifyPurchaseEvidenceManifest,
 } from "agent-payment-policy";
+import packageMetadata from "./package.json" with { type: "json" };
 
 export const SCHEMA_VERSION = "agent-payment-integrity.audit.v5";
-export const TOOL_VERSION = "0.1.0-candidate.12";
+export const TOOL_VERSION = packageMetadata.version;
 
 const CREDENTIAL_KEY = /(?:^|[-_])(?:api[-_]?key|key|token|secret|password|credential|authorization|auth)(?:$|[-_])/i;
 const ROUTE_PATTERN = /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/;

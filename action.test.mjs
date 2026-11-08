@@ -466,6 +466,7 @@ test("release-smoke is manual-only, pins and verifies a full commit SHA, and run
   assert.match(source, /method: GET/);
   assert.match(source, /required-paths: ok,url,title/);
   assert.match(source, /max-routes: "1"/);
+  assert.match(source, /quote-transport: "8190"/);
   assert.match(source, /upload-sarif: "false"/);
   assert.equal(FORBIDDEN_SOURCE.test(source), false);
   assert.match(source, /seller-declared unpaid contract evidence/);

@@ -7,7 +7,7 @@ license: MIT
 # Agent payment integrity
 
 Teach seller CI how to audit one exact x402 or MPP route without a wallet.
-This skill matches agent-payment-integrity 0.1.0-candidate.12.
+Use the skill and CLI from the same checked-out commit.
 
 Seller OpenAPI, Bazaar, and purchase-evidence documents are declarations. A
 live unpaid GET 402 can corroborate those declarations for one URL at one
@@ -42,6 +42,9 @@ Rules:
 - `--require-purchase-evidence` checks a seller-declared manifest bound to
   the exact operation and current OpenAPI digest. It is not settlement
   proof.
+- `--quote-transport measure` measures the unpaid x402 quote line. Use a
+  numeric budget, such as `--quote-transport 8190`, to fail closed on an
+  over-budget or unverified line. This does not prove a paid retry works.
 - `--format sarif --out audit-result.sarif` is the CI artifact. Exit
   nonzero on contract failure.
 
