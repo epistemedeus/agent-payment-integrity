@@ -7,6 +7,7 @@ import { PURCHASE_EVIDENCE_RELATION, createPurchaseEvidenceManifest } from "agen
 import {
   SCHEMA_VERSION,
   auditIntegrity,
+  auditOrigin,
   buildAuditTarget,
   createPurchaseEvidenceScaffold,
   isPublicAddress,
@@ -20,6 +21,41 @@ import {
 
 const ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const RECIPIENT = "0x1111111111111111111111111111111111111111";
+
+test("distinguishes observed ingress failures from ordinary declaration HTTP errors", async () => {
+  const routeUnavailable = { status: "error", code: 404, message: "Application not found" };
+  const upstreamUnavailable = { status: "error", code: 502, message: "Application failed to respond" };
+  const edge = { "x-railway-fallback": "true", "x-railway-request-id": "never-export-this" };
+  for (const [status, headers, body, code] of [
+    [404, edge, routeUnavailable, "document_ingress_route_unavailable"],
+    [502, edge, upstreamUnavailable, "document_ingress_upstream_unavailable"],
+    [404, {}, routeUnavailable, "document_http_status"],
+    [404, edge, { status: "error", code: 404, message: "No route" }, "document_http_status"],
+    [404, edge, upstreamUnavailable, "document_http_status"],
+    [404, edge, "invalid JSON", "document_http_status"],
+    [404, edge, { ...routeUnavailable, padding: " ".repeat(4096) }, "document_http_status"],
+  ]) {
+    const calls = [];
+    await assert.rejects(auditOrigin({
+      origin: "https://example.com",
+      route: "/rpc/polygon",
+      method: "POST",
+      requestImpl: async (url) => {
+        calls.push(url.href);
+        return { status, headers, body: Buffer.from(typeof body === "string" ? body : JSON.stringify(body)) };
+      },
+    }), (error) => {
+      assert.equal(error.code, code);
+      assert.equal(error.status, status);
+      assert.equal(error.message, `document returned HTTP ${status}`);
+      assert.deepEqual(Object.keys(error).sort(), ["code", "name", "status"]);
+      assert.doesNotMatch(JSON.stringify(error), /never-export-this|Application not found/);
+      return true;
+    });
+    assert.deepEqual(calls, ["https://example.com/openapi.json"]);
+  }
+});
+
 const MULTICHAIN_RESOURCE = "https://agent402.tools/api/unemployment-rate";
 const MULTICHAIN_BASE_ASSET = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const MULTICHAIN_BASE_RECIPIENT = "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0";

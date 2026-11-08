@@ -242,9 +242,41 @@ export async function requestPinned(urlInput, {
   });
 }
 
+function documentFailureCode({ status, headers, body }) {
+  // Keep observed hosting failures separate from application statuses. A
+  // generic 404 or provider header alone is not enough to classify one.
+  if ((status === 404 || status === 502)
+      && headers?.["x-railway-fallback"] === "true"
+      && Buffer.isBuffer(body) && body.length <= 4096) {
+    try {
+      const fallback = JSON.parse(body.toString("utf8"));
+      if (fallback?.status === "error" && fallback.code === status) {
+        if (status === 404 && fallback.message === "Application not found") {
+          return "document_ingress_route_unavailable";
+        }
+        if (status === 502 && fallback.message === "Application failed to respond") {
+          return "document_ingress_upstream_unavailable";
+        }
+      }
+    } catch {
+      // A malformed fallback is ordinary HTTP failure evidence only.
+    }
+  }
+  return "document_http_status";
+}
+
+class DocumentHttpError extends Error {
+  constructor(response) {
+    super(`document returned HTTP ${response.status}`);
+    this.name = "DocumentHttpError";
+    this.status = response.status;
+    this.code = documentFailureCode(response);
+  }
+}
+
 async function fetchJsonResponse(url, { requestImpl = requestPinned, requestOptions = {} } = {}) {
   const response = await requestImpl(url, requestOptions);
-  if (response.status !== 200) throw new Error(`document returned HTTP ${response.status}`);
+  if (response.status !== 200) throw new DocumentHttpError(response);
   try {
     return { document: JSON.parse(response.body.toString("utf8")), response };
   } catch {
