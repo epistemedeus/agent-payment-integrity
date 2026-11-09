@@ -104,9 +104,17 @@ unpaid Payment challenges, not required to send an x402 header. The report
 retains all normalized MPP options for this case. Exact declared Tempo/EVM
 offers must match a live option on method, intent, atomic amount, token,
 recipient and any explicitly declared network. An omitted declaration
-network does not establish chain agreement. Legacy and dual-rail checks
-are unchanged; the x402 transport budget and Bazaar requirement remain
-x402-specific. An unsigned offer is not payment authorization or delivery.
+network does not establish chain agreement. The x402 transport budget and
+Bazaar requirement remain x402-specific. A 402 alone never sets
+`runtimeChallengeVerified`: the required offers must parse and bind to the
+actual x402 request or MPP realm. That flag does not replace the remaining
+seller-contract checks, authorize payment, or prove delivery.
+
+If OpenAPI declares only `x-payment-info: {"authMode":"none"}` and a live 402
+contains only a same-origin zero-amount Tempo challenge, the audit reports
+`zero_amount_mpp_challenge_not_paid`. It does not count a wallet-identity
+challenge as a paid offer, establish that the service is anonymous, or sign
+anything. A positive live offer against that declaration remains a mismatch.
 
 ### Optional x402 quote transport budget
 

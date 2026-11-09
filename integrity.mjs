@@ -470,7 +470,7 @@ function parseQuotedParameters(value) {
   return parameters;
 }
 
-export function parseMppChallenges(header) {
+function parseMppOfferHeader(header, { zeroAmountOnly = false } = {}) {
   try {
     if (typeof header !== "string" || header.length < 8 || header.length > 1_000_000) {
       throw new Error("missing or oversized MPP challenge");
@@ -498,7 +498,11 @@ export function parseMppChallenges(header) {
         intent: params.intent,
         decimals: request?.methodDetails?.decimals,
       });
-      if (!validEconomics(economics)) throw new Error("invalid MPP economics");
+      const valid = zeroAmountOnly
+        ? request.amount === "0" && economics.method === "tempo" && economics.intent === "charge"
+          && economics.network && economics.asset && economics.recipient
+        : validEconomics(economics);
+      if (!valid) throw new Error("invalid MPP economics");
       return { ...economics, realm: params.realm.toLowerCase() };
     });
     if (offers.length === 0) throw new Error("no MPP Payment challenge");
@@ -506,6 +510,10 @@ export function parseMppChallenges(header) {
   } catch (error) {
     return { error: error instanceof Error ? error.message : "malformed MPP challenge" };
   }
+}
+
+export function parseMppChallenges(header) {
+  return parseMppOfferHeader(header);
 }
 
 function ajvErrors(errors) {
@@ -870,6 +878,10 @@ export async function auditIntegrity({
 
   for (const route of routeNames) {
     const operation = xOperations.get(route) || mppOperations.get(route);
+    const paymentDeclarations = [xOperations.get(route), mppOperations.get(route)]
+      .map((entry) => entry?.["x-payment-info"]).filter((entry) => entry !== undefined);
+    const explicitlyNonPaid = paymentDeclarations.length > 0 && paymentDeclarations.every((entry) =>
+      isPlainObject(entry) && entry.authMode === "none" && Object.keys(entry).length === 1);
     const declaredProtocols = new Set([
       ...advertisedProtocols(xOperations.get(route)),
       ...advertisedProtocols(mppOperations.get(route)),
@@ -965,17 +977,26 @@ export async function auditIntegrity({
     if (requirePurchaseEvidence && purchaseEvidence.status !== "verified") findings.push("purchase_evidence_required");
 
     const x402Header = response.headers?.["payment-required"] ?? response.headers?.["x-payment-required"];
+    const mppHeader = response.headers?.["www-authenticate"];
     const x402 = parseX402Challenge(x402Header);
-    const mpp = parseMppChallenges(response.headers?.["www-authenticate"]);
+    const mpp = parseMppChallenges(mppHeader);
     const protocols = [];
     let bazaarObservation = { present: false, valid: null };
+    const zeroAmount = explicitlyNonPaid && response.status === 402 && x402Header === undefined
+      ? parseMppOfferHeader(mppHeader, { zeroAmountOnly: true }) : null;
+    const isNonPaidChallenge = zeroAmount?.offers?.every(({ realm }) => realm === base.hostname.toLowerCase()) === true;
+    const x402Bound = !x402.error && resourceBindsTarget(x402.payload?.resource?.url, target, base);
+    const mppBound = !mpp.error && mpp.offers.every(({ realm }) => realm === base.hostname.toLowerCase());
+    if (explicitlyNonPaid && response.status === 402 && (!x402.error || !mpp.error)) {
+      findings.push("non_paid_declaration_live_paid_challenge");
+    }
 
     if (x402.error) {
-      if (!mppOnly || x402Header !== undefined) findings.push(x402.errorCode || "x402_challenge_invalid");
+      if (isNonPaidChallenge) findings.push("zero_amount_mpp_challenge_not_paid");
+      else if (!mppOnly || x402Header !== undefined) findings.push(x402.errorCode || "x402_challenge_invalid");
     } else {
       protocols.push("x402");
-      const resourceUrl = x402.payload?.resource?.url;
-      if (!resourceBindsTarget(resourceUrl, target, base)) findings.push("x402_full_request_binding_mismatch");
+      if (!x402Bound) findings.push("x402_full_request_binding_mismatch");
       const bazaarExtension = x402.payload?.extensions?.bazaar;
       const bazaar = bazaarExtension === undefined
         ? { present: false, valid: null, findings: requireBazaar ? ["bazaar_extension_missing"] : [] }
@@ -990,7 +1011,7 @@ export async function auditIntegrity({
       if (expectsMpp) findings.push("mpp_challenge_invalid");
     } else {
       protocols.push("mpp");
-      if (mpp.offers.some((offer) => offer.realm !== base.hostname.toLowerCase())) {
+      if (!mppBound) {
         findings.push("mpp_realm_mismatch");
       }
     }
@@ -1020,8 +1041,9 @@ export async function auditIntegrity({
       status: response.status,
       queryKeys,
       valid: findings.length === 0,
-      runtimeChallengeVerified: response.status === 402 && (!mppOnly ||
-        (!mpp.error && mpp.offers.every((offer) => offer.realm === base.hostname.toLowerCase()))),
+      runtimeChallengeVerified: response.status === 402 && !isNonPaidChallenge
+        && (mppOnly && x402Header === undefined || x402Bound)
+        && (!(expectsMpp || !mpp.error) || mppBound),
       probe: { attempted: true, reason: null },
       findings,
       protocols: [...new Set(protocols)].sort(),
