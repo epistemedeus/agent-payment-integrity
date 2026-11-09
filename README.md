@@ -153,8 +153,9 @@ resolver and fails closed on any non-public answer.
 
 ## External seller GitHub Action
 
-An unpublished `npx` package still requires Node, lockfile, and SARIF-upload YAML
-in the seller repository. The reusable composite action is the GitHub-native pin:
+For a GitHub seller repository, copy the [complete workflow](examples/seller-github-action.yml)
+and set `origin` and `route` to your own HTTPS service. This example pins the
+tested Action from [candidate.15](https://github.com/epistemedeus/agent-payment-integrity/releases/tag/v0.1.0-candidate.15):
 
 ```yaml
 permissions:
@@ -165,7 +166,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: epistemedeus/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA
+      - uses: epistemedeus/agent-payment-integrity@7081ff96e5f5c130265e2be7d32d0847e06aac5b # v0.1.0-candidate.15
         with:
           origin: https://seller.example
           route: /read
@@ -173,12 +174,9 @@ jobs:
           upload-sarif: "true"
 ```
 
-`v0.1.0-candidate.8` is the first tag that contains this Action. Earlier
-candidate tags do not. `v0.1.0-candidate.9` is the first tag whose metadata
-passes GitHub Marketplace publication. Marketplace or tag syntax such as
-`epistemedeus/agent-payment-integrity@v0.1.0-candidate.9` is a convenience
-for discovery and copy-paste. Pin the full commit SHA of that tagged tree
-for production CI. Do not use `@main`. A passing run is seller-declared
+Keep the full commit SHA in CI; change it only when you choose a tested
+release. Do not use `@main` or a floating tag. The Marketplace entry is a
+discovery path, not the recommended pin. A passing run is seller-declared
 unpaid contract evidence. It is not runtime, settlement, delivery, demand,
 or adoption proof. The action accepts no secrets, installs this CLI with
 `npm ci --ignore-scripts` inside the action directory, runs only `audit`,

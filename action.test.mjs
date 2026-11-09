@@ -89,17 +89,17 @@ test("action.yml pins nested actions to full commit SHAs", async () => {
 
 test("example seller workflow is credential-free and does not use npx or main", async () => {
   const source = await read("examples/seller-github-action.yml");
-  assert.match(source, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
   const uses = extractUses(source);
-  assert.equal(uses.some((spec) => spec.includes("@main") || /@v\d/.test(spec)), false);
+  assert.equal(uses.length, 1);
+  const [action, pin] = uses[0].split("@");
+  assert.equal(action, "epistemedeus/agent-payment-integrity");
+  assert.match(pin ?? "", PINNED_SHA);
   assert.equal(source.includes("npx"), false);
   assert.equal(source.includes("npm install"), false);
   assert.equal(source.includes("secrets."), false);
   assert.match(source, /permissions:\n  contents: read\n  security-events: write/);
   assert.match(source, /origin: https:\/\/seller\.example/);
   assert.match(source, /upload-sarif: "true"/);
-  assert.match(source, /v0\.1\.0-candidate\.9/);
-  assert.match(source, /Marketplace or tag syntax is a convenience/);
   assert.doesNotMatch(source, /grok\/integrity-distribution-convergence-corrected-20260820/);
   assert.doesNotMatch(source, /c10f996|c725c8d/);
 });
@@ -415,7 +415,6 @@ test("example seller workflow warns against pull_request_target and documents fo
   assert.match(source, /pull_request_target/);
   assert.match(source, /Fork pull_request/);
   assert.equal(source.includes("pull_request_target:"), false);
-  assert.match(source, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
 });
 
 test("action.yml Marketplace branding is allowed shield/blue and does not change behavior", async () => {
