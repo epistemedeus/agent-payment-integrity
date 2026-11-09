@@ -470,10 +470,18 @@ test("release-smoke is manual-only, pins and verifies a full commit SHA, and run
   assert.match(source, /upload-sarif: "false"/);
   assert.equal(FORBIDDEN_SOURCE.test(source), false);
   assert.match(source, /seller-declared unpaid contract evidence/);
+  assert.match(source, /pack_cli:\n\s+description: .+\n\s+type: boolean\n\s+default: false/);
+  assert.equal([...source.matchAll(/if: \$\{\{ inputs\.pack_cli \}\}/g)].length, 3);
+  assert.match(source, /npm shrinkwrap --ignore-scripts/);
+  assert.match(source, /npm pack --ignore-scripts/);
+  assert.match(source, /npm_config_git=\/usr\/bin\/false/);
+  assert.match(source, /npm exec --yes --ignore-scripts/);
+  assert.match(source, /name: verified-integrity-cli/);
   const uses = extractUses(source);
   assert.deepEqual(uses, [
     "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
     "./",
+    "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
   ]);
   for (const spec of uses) {
     if (spec === "./") continue;

@@ -27,3 +27,11 @@ smoke on the exact candidate tree before tagging. After the tested release
 is published, verify that the annotated tag resolves to the tested commit,
 then update the recommended Action pin in the README, workflow example and
 skill together. Do not retag or move pins already used by customers.
+
+Set `pack_cli=true` on that same smoke dispatch to produce the Git-free CLI
+archive. The workflow checks source and dependency-lock identity, installs the
+archive in an empty directory and receives a live unpaid quote. Download the
+`verified-integrity-cli` artifact from the successful run. Check its
+`RECEIVING.json` source and version against the signed tag and verify
+`SHA256SUMS`. Attach only the versioned archive and checksum to the new GitHub
+release. Never replace a previously published archive to roll forward.

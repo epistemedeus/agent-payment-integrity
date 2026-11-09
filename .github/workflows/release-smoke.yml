@@ -20,6 +20,10 @@ on:
         description: Full 40-character commit SHA of the Action tree to smoke-test.
         required: true
         type: string
+      pack_cli:
+        description: Also build and cold-install the locked CLI archive for this commit.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -66,3 +70,60 @@ jobs:
           max-routes: "1"
           quote-transport: "8190"
           upload-sarif: "false"
+
+      - name: Package the exact release with its dependency lock
+        if: ${{ inputs.pack_cli }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source=$(git rev-parse HEAD)
+          version=$(jq -er '.version' package.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-candidate\.[0-9]+$ ]]
+          jq -e '.name == "agent-payment-integrity" and .private == true and .license == "MIT" and (.files | type == "array" and index("npm-shrinkwrap.json") == null)' package.json >/dev/null
+          jq -e --arg version "$version" '.version == $version and .packages[""].version == $version' package-lock.json >/dev/null
+          out="$RUNNER_TEMP/portable-release"
+          mkdir "$out"
+          export npm_config_audit=false npm_config_fund=false
+          npm shrinkwrap --ignore-scripts
+          file_index=$(jq -er '.files | length' package.json)
+          npm pkg set "files[$file_index]=npm-shrinkwrap.json"
+          npm pack --ignore-scripts --pack-destination "$out"
+          name="agent-payment-integrity-$version.tgz"
+          tar -tzf "$out/$name" | LC_ALL=C sort > "$RUNNER_TEMP/portable-members"
+          awk '$0 !~ /^package\/(package.json|npm-shrinkwrap.json|integrity.mjs|cli.mjs|README.md|LICENSE|SECURITY.md|docs\/[a-z-]+\.md|skills\/agent-payment-integrity\/SKILL.md)$/ {exit 1}' "$RUNNER_TEMP/portable-members"
+          cmp <(git show "$source:package.json" | jq -S .) <(tar -xOzf "$out/$name" package/package.json | jq -S --argjson i "$file_index" 'del(.files[$i])')
+          cmp <(git show "$source:package-lock.json" | jq -S .packages) <(tar -xOzf "$out/$name" package/npm-shrinkwrap.json | jq -S .packages)
+          for file in cli.mjs integrity.mjs; do
+            cmp <(git show "$source:$file") <(tar -xOzf "$out/$name" "package/$file")
+          done
+          cd "$out"
+          sha256sum "$name" > SHA256SUMS
+
+      - name: Cold-install the packed CLI and audit one live unpaid route
+        if: ${{ inputs.pack_cli }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source=$(git rev-parse HEAD)
+          version=$(jq -er '.version' package.json)
+          out="$RUNNER_TEMP/portable-release"
+          cold=$(mktemp -d)
+          cd "$cold"
+          test ! -d .git
+          export npm_config_git=/usr/bin/false npm_config_cache="$cold/npm-cache"
+          export npm_config_userconfig=/dev/null npm_config_audit=false npm_config_fund=false
+          timeout 90 npm exec --yes --ignore-scripts --package="$out/agent-payment-integrity-$version.tgz" -- \
+            agent-payment-integrity audit --origin https://agents.samedaydesk.com \
+            --route /commerce/seller-integrity-audit --required-paths report.findings,report.repairPlan.actions \
+            --max-routes 1 --public-dns --format json > "$RUNNER_TEMP/portable-report.json"
+          jq -e '.ok and (.routes | length == 1) and .routes[0].status == 402 and .routes[0].runtimeChallengeVerified' "$RUNNER_TEMP/portable-report.json" >/dev/null
+          jq --arg source "$source" --arg version "$version" '{source:$source,version:$version,ok,route:.routes[0].route,status:.routes[0].status,runtimeChallengeVerified:.routes[0].runtimeChallengeVerified}' "$RUNNER_TEMP/portable-report.json" | tee "$out/RECEIVING.json"
+
+      - name: Retain the verified archive for explicit release publication
+        if: ${{ inputs.pack_cli }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-integrity-cli
+          path: ${{ runner.temp }}/portable-release/*
+          if-no-files-found: error
+          retention-days: 5
