@@ -506,6 +506,66 @@ test("passes a dual-rail declaration bound to the full runtime request", async (
   });
 });
 
+test("a 402 is not a verified quote without the applicable parsers and bindings", async () => {
+  const quote = (target) => x402Header(target.href);
+  const probes = [
+    ["unrecognized 402", () => ({})],
+    ["malformed x402", () => ({ "payment-required": "invalid", "www-authenticate": mppHeader() })],
+    ["malformed declared MPP", (target) => ({ "payment-required": quote(target), "www-authenticate": "invalid" })],
+    ["unbound x402", () => ({ "payment-required": x402Header("https://example.com/read"), "www-authenticate": mppHeader() })],
+    ["wrong MPP realm", (target) => ({ "payment-required": quote(target), "www-authenticate": mppHeader({}, "other.example") })],
+  ];
+  for (const [label, headers] of probes) {
+    const report = await auditIntegrity({ origin: "https://example.com", ...documents(),
+      requestImpl: async (target) => ({ status: 402, headers: headers(target), body: Buffer.alloc(0) }),
+    });
+    assert.equal(report.routes[0].runtimeChallengeVerified, false, label);
+    assert.equal(report.machineBuyable, false, label);
+  }
+  const report = await auditIntegrity({ origin: "https://example.com", x402Document: documents().x402Document,
+    requestImpl: async (target) => ({ status: 402, headers: { "payment-required": quote(target) }, body: Buffer.alloc(0) }),
+  });
+  assert.equal(report.routes[0].runtimeChallengeVerified, true);
+  assert.equal(report.machineBuyable, true);
+});
+
+test("identifies a declared no-payment, zero-amount Tempo challenge without qualifying a purchase", async () => {
+  const x402Document = documents().x402Document;
+  x402Document.paths["/read"].get["x-payment-info"] = { authMode: "none" };
+  const challenge = (amount = "0", realm) => mppHeader({ amount,
+    currency: "0x20C000000000000000000000b9537d11c60E8b50", methodDetails: { chainId: 4217 },
+  }, realm).replace('method="evm"', 'method="tempo"');
+  const run = (header, { status = 402, x402, declaration, mppDocument } = {}) => {
+    const doc = structuredClone(x402Document);
+    if (declaration) doc.paths["/read"].get["x-payment-info"] = declaration;
+    return auditIntegrity({ origin: "https://example.com", x402Document: doc, mppDocument,
+      requestImpl: async (target) => ({ status, headers: { "www-authenticate": header,
+        ...(x402 && { "payment-required": x402 === true ? x402Header(target.href) : x402 }) }, body: Buffer.alloc(0) }),
+    });
+  };
+  const result = await run(challenge());
+  assert.deepEqual(result.routes[0].findings, ["zero_amount_mpp_challenge_not_paid"]);
+  assert.equal(result.routes[0].runtimeChallengeVerified, false);
+  assert.equal(result.routes[0].economics.mpp, null);
+  assert.equal(result.machineBuyable, false);
+  assert.match(parseMppChallenges(challenge()).error, /invalid MPP economics/);
+  for (const [header, options] of [
+    [challenge("1"), {}], [challenge("0", "other.example"), {}],
+    [challenge().replace("2099-08", "2020-08"), {}],
+    [[challenge(), challenge("1")].join(", "), {}],
+    [challenge(), { status: 200 }], [challenge(), { x402: "malformed" }],
+    [challenge(), { declaration: { authMode: "required" } }],
+    [challenge(), { mppDocument: documents().mppDocument }],
+  ]) {
+    const invalid = await run(header, options);
+    assert.equal(invalid.routes[0].findings.includes("zero_amount_mpp_challenge_not_paid"), false);
+    assert.equal(invalid.machineBuyable, false);
+  }
+  const conflict = await run(challenge(), { x402: true });
+  assert.deepEqual(conflict.routes[0].findings, ["non_paid_declaration_live_paid_challenge"]);
+  assert.equal(conflict.machineBuyable, false);
+});
+
 test("treats an omitted optional Bazaar extension as a discovery state, not a payment-integrity failure", async () => {
   const requestImpl = async (url) => ({
     status: 402,
