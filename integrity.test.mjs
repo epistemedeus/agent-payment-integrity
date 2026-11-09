@@ -233,6 +233,70 @@ test("rejects private addresses and credential-like query parameters", () => {
   assert.throws(() => buildAuditTarget("https://example.com", "/read", {
     parameters: [{ name: "api_key", in: "query", required: true, schema: { type: "string" } }],
   }), /unsafe required query parameter/);
+  assert.throws(() => buildAuditTarget("https://example.com", "//other.example/read", {}), /unsafe route/);
+  assert.throws(() => buildAuditTarget("https://example.com", "/a/%2e%2e/read", {}), /unsafe route/);
+});
+
+test("GET probes include inherited and locally referenced required parameters", async () => {
+  const { x402Document } = documents();
+  const path = x402Document.paths["/read"];
+  const required = (name, example) => ({ name, in: "query", required: true, example });
+  path.parameters = [required("url", "https://old.example/"), { $ref: "#/components/parameters/Locale" }];
+  path.get.parameters = [{ $ref: "#/components/parameters/Target" }];
+  x402Document.components = { parameters: {
+    Locale: required("locale", "en-US"),
+    Target: { $ref: "#/components/parameters/ActualTarget" },
+    ActualTarget: required("url", "https://changed.example/?a=b"),
+  } };
+  const observed = [];
+  const respond = requestFixture();
+  const report = await auditIntegrity({ origin: "https://example.com", x402Document,
+    requestImpl: (url) => { observed.push(url.href); return respond(url); } });
+  assert.deepEqual(observed, ["https://example.com/read?locale=en-US&url=https%3A%2F%2Fchanged.example%2F%3Fa%3Db"]);
+  assert.deepEqual(report.routes[0].queryKeys, ["locale", "url"]);
+  assert.equal(report.routes[0].runtimeChallengeVerified, true);
+  assert.doesNotMatch(JSON.stringify(report), /changed\.example/);
+});
+
+test("unsupported or unsafe required inputs prevent a live quote probe", async () => {
+  for (const [input, components, reason] of [
+    [{ $ref: "https://other.example/parameters.json#/URL" }, {}, /unsupported parameter reference/],
+    [{ $ref: "#/components/parameters/Missing" }, {}, /unresolved parameter reference/],
+    [{ $ref: "#/components/parameters/A" }, { A: { $ref: "#/components/parameters/A" } }, /cyclic or excessive parameter references/],
+    [{ $ref: "#/components/parameters/Secret" }, { Secret: { name: "api_key", in: "query", required: true, example: "do-not-send" } }, /unsafe required query parameter/],
+    [{ name: "tenant", in: "header", required: true, example: "do-not-send" }, {}, /unsupported required parameter location/],
+  ]) {
+    const { x402Document } = documents();
+    x402Document.paths["/read"].parameters = [input];
+    x402Document.components = { parameters: components };
+    let requested = 0;
+    const report = await auditIntegrity({ origin: "https://example.com", x402Document,
+      requestImpl: async () => { requested++; throw new Error("must not probe"); } });
+    assert.equal(requested, 0);
+    assert.equal(report.routes[0].runtimeChallengeVerified, false);
+    assert.equal(report.routes[0].probe.reason, "target_not_constructible");
+    assert.match(report.routes[0].findings[0], reason);
+    assert.doesNotMatch(JSON.stringify(report), /do-not-send|other\.example/);
+  }
+});
+
+test("MPP-only targets use the parameters in their own document", async () => {
+  const { x402Document, mppDocument } = documents();
+  const path = mppDocument.paths["/read"];
+  x402Document.paths = {};
+  path.get["x-payment-info"].offers = path.get["x-payment-info"].offers.slice(0, 1);
+  path.parameters = [{ $ref: "#/components/parameters/Asset" }];
+  path.get.parameters = [];
+  mppDocument.components = { parameters: { Asset: { name: "asset", in: "query", required: true, example: "example-asset" } } };
+  const observed = [];
+  const report = await auditIntegrity({ origin: "https://example.com", x402Document, mppDocument,
+    requestImpl: async (url) => {
+      observed.push(url.href);
+      return { status: 402, headers: { "www-authenticate": mppHeader() }, body: Buffer.alloc(0) };
+    } });
+  assert.deepEqual(observed, ["https://example.com/read?asset=example-asset"]);
+  assert.deepEqual(report.routes[0].queryKeys, ["asset"]);
+  assert.equal(report.routes[0].runtimeChallengeVerified, true);
 });
 
 test("rejects unsafe origins and mixed public-private DNS answers", async () => {
