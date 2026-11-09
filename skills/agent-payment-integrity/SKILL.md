@@ -97,7 +97,7 @@ instead of adding package dependencies. Set the seller origin and exact route.
 Keep the verified release's full commit SHA; do not use `@main` or a floating tag.
 
 ```yaml
-- uses: epistemedeus/agent-payment-integrity@7081ff96e5f5c130265e2be7d32d0847e06aac5b # v0.1.0-candidate.15
+- uses: epistemedeus/agent-payment-integrity@72c84542d5866ef26d7db262f5e3157e70f16d2d # v0.1.0-candidate.16
   with:
     origin: https://seller.example
     route: /exact-paid-path
