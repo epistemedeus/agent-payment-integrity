@@ -355,12 +355,55 @@ function parameterExample(parameter) {
   return null;
 }
 
-export function buildAuditTarget(origin, route, operation) {
-  if (!ROUTE_PATTERN.test(route) || route.includes("{")) throw new Error("unresolved or unsafe route template");
+function auditParameter(entry, document) {
+  const seen = new Set();
+  while (isPlainObject(entry) && Object.hasOwn(entry, "$ref")) {
+    const key = typeof entry.$ref === "string"
+      && /^#\/components\/parameters\/([A-Za-z0-9_.-]+)$/.exec(entry.$ref)?.[1];
+    if (!key) throw new Error("unsupported parameter reference");
+    if (seen.has(key) || seen.size === 16) throw new Error("cyclic or excessive parameter references");
+    seen.add(key);
+    const components = document?.components?.parameters;
+    if (!isPlainObject(components) || !Object.hasOwn(components, key)) {
+      throw new Error("unresolved parameter reference");
+    }
+    entry = components[key];
+  }
+  if (!isPlainObject(entry) || typeof entry.name !== "string" || !entry.name
+      || !["query", "header", "path", "cookie"].includes(entry.in)
+      || (Object.hasOwn(entry, "required") && typeof entry.required !== "boolean")) {
+    throw new Error("invalid parameter declaration");
+  }
+  return entry;
+}
+
+function auditParameters(document, route, operation) {
+  const effective = new Map();
+  // Operation-level definitions replace path-level definitions of the same
+  // name and location. The two lists may not contain duplicates internally.
+  for (const list of [document?.paths?.[route]?.parameters, operation?.parameters]) {
+    if (list === undefined) continue;
+    if (!Array.isArray(list) || list.length > 128) throw new Error("invalid parameter list");
+    const scope = new Set();
+    for (const entry of list) {
+      const parameter = auditParameter(entry, document);
+      const key = `${parameter.in}:${parameter.name}`;
+      if (scope.has(key)) throw new Error("duplicate parameter declaration");
+      scope.add(key);
+      effective.set(key, parameter);
+    }
+  }
+  return effective.values();
+}
+
+export function buildAuditTarget(origin, route, operation, document = null) {
+  if (!ROUTE_PATTERN.test(route) || route.startsWith("//")) throw new Error("unresolved or unsafe route template");
   const target = new URL(route, origin);
+  if (target.pathname !== route) throw new Error("unresolved or unsafe route template");
   const queryKeys = [];
-  for (const parameter of operation?.parameters || []) {
-    if (parameter?.in !== "query" || parameter?.required !== true) continue;
+  for (const parameter of auditParameters(document, route, operation)) {
+    if (parameter.required !== true) continue;
+    if (parameter.in !== "query") throw new Error("unsupported required parameter location");
     const name = String(parameter.name || "");
     if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name) || CREDENTIAL_KEY.test(name)) {
       throw new Error(`unsafe required query parameter ${name || "unknown"}`);
@@ -935,7 +978,8 @@ export async function auditIntegrity({
     let target;
     let queryKeys = [];
     try {
-      ({ url: target, queryKeys } = buildAuditTarget(base, route, operation));
+      const document = xOperations.has(route) ? x402Document : mppDocument;
+      ({ url: target, queryKeys } = buildAuditTarget(base, route, operation, document));
     } catch (error) {
       addRoute({
         method,

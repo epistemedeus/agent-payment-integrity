@@ -99,6 +99,11 @@ The report therefore keeps `runtimeChallengeVerified: false` and
 `machineBuyable: false` even when the static contract passes. This avoids
 triggering an arbitrary seller action while still identifying missing or
 underconstrained success fields. GET audits retain the live unpaid 402 probe.
+They build required query inputs from path and operation parameters, including
+local `#/components/parameters/...` references. Operation definitions take
+precedence. An unsupported reference or a required non-query input blocks the
+probe rather than treating a bare challenge as evidence for the complete request.
+The probe uses public examples, not the buyer's private input or paid result.
 
 ### Explicit MPP-only routes
 
