@@ -22,5 +22,8 @@ wallets, or payments.
 
 For releases, update the version in the package manifest and lockfile.
 The SARIF tool version and packed filename follow the manifest. Keep skill
-instructions tied to the same checkout, not a hard-coded release version.
-Run full CI and the release smoke on the exact candidate tree before tagging.
+CLI instructions tied to the same checkout. Run full CI and the release
+smoke on the exact candidate tree before tagging. After the tested release
+is published, verify that the annotated tag resolves to the tested commit,
+then update the recommended Action pin in the README, workflow example and
+skill together. Do not retag or move pins already used by customers.

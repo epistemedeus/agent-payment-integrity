@@ -1,7 +1,6 @@
-# Copy into a seller repository. Pin the full commit SHA of the
-# v0.1.0-candidate.9 tree, the first Marketplace-published Action tag.
-# Marketplace or tag syntax is a convenience. Do not use @main, a
-# floating tag, npm, or pull_request_target. A passing run is
+# Copy into a seller repository and set origin and route. Keep the full
+# commit SHA. Do not use @main, a floating tag, or pull_request_target.
+# A passing run is
 # seller-declared unpaid contract evidence, not runtime, settlement,
 # delivery, demand, or adoption proof. The package remains unpublished
 # on npm.
@@ -28,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: epistemedeus/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA
+      - uses: epistemedeus/agent-payment-integrity@7081ff96e5f5c130265e2be7d32d0847e06aac5b # v0.1.0-candidate.15
         with:
           origin: https://seller.example
           route: /read

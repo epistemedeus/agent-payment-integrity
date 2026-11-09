@@ -91,14 +91,13 @@ intentional.
 
 ## GitHub-native pin
 
-A GitHub seller repository can pin the composite action instead of cloning
-this package into application dependencies. `v0.1.0-candidate.8` is the first
-tag that contains the Action, and `v0.1.0-candidate.9` is the first tag whose
-metadata passes Marketplace publication. Marketplace or tag syntax is a
-convenience. Use a full 40-character commit SHA. Do not use `@main`.
+A GitHub seller repository can copy the
+[complete workflow](https://github.com/epistemedeus/agent-payment-integrity/blob/main/examples/seller-github-action.yml)
+instead of adding package dependencies. Set the seller origin and exact route.
+Keep the verified release's full commit SHA; do not use `@main` or a floating tag.
 
 ```yaml
-- uses: epistemedeus/agent-payment-integrity@COMMIT_SHA
+- uses: epistemedeus/agent-payment-integrity@7081ff96e5f5c130265e2be7d32d0847e06aac5b # v0.1.0-candidate.15
   with:
     origin: https://seller.example
     route: /exact-paid-path

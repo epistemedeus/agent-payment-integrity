@@ -99,12 +99,15 @@ test("packaging: skill ships in npm; action stays git-consumed", { timeout: 60_0
 
 test("docs: skill install and SHA-pinned action are both documented", () => {
   assert.match(readme, /npx skills add epistemedeus\/agent-payment-integrity/);
-  assert.match(readme, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
-  assert.match(readme, /v0\.1\.0-candidate\.8` is the first tag that contains this Action/);
-  assert.match(readme, /v0\.1\.0-candidate\.9` is the first tag whose metadata\npasses GitHub Marketplace publication/);
-  assert.match(readme, /Marketplace or tag syntax/);
-  assert.match(readme, /Pin the full commit SHA of that tagged tree/);
-  assert.match(readme, /A passing run is seller-declared\nunpaid contract evidence/);
+  const releasePin = /uses:[ \t]+epistemedeus\/agent-payment-integrity@([a-f0-9]{40})[ \t]+#[ \t]+(v\d+\.\d+\.\d+-candidate\.\d+)/;
+  const match = example.match(releasePin);
+  assert.ok(match, "the copyable workflow must pin a qualified release commit");
+  const [, commit, tag] = match;
+  for (const [name, source] of Object.entries({ readme, example, skill })) {
+    assert.deepEqual(source.match(releasePin)?.slice(1), [commit, tag], name);
+  }
+  assert.ok(readme.includes(`https://github.com/epistemedeus/agent-payment-integrity/releases/tag/${tag})`));
+  assert.match(readme, /A passing run is seller-declared\s+unpaid contract evidence/);
   assert.match(readme, /not runtime, settlement, delivery, demand,\nor adoption proof/);
   assert.match(readme, /package remains unpublished on npm/);
   assert.match(readme, /validated `sarif-path` output/);
@@ -114,15 +117,9 @@ test("docs: skill install and SHA-pinned action are both documented", () => {
   assert.doesNotMatch(readme, /grok\/github-action-20260820/);
   assert.doesNotMatch(readme, OBSOLETE_GUIDANCE);
   assert.doesNotMatch(readme, /agent-payment-integrity@main/);
-  assert.match(example, /uses: epistemedeus\/agent-payment-integrity@REPLACE_WITH_COMMIT_SHA/);
-  assert.match(example, /v0\.1\.0-candidate\.9 tree/);
-  assert.match(example, /Marketplace or tag syntax is a convenience/);
   assert.doesNotMatch(example, OBSOLETE_GUIDANCE);
   assert.doesNotMatch(example, /agent-payment-integrity@main/);
-  assert.match(skill, /uses: epistemedeus\/agent-payment-integrity@COMMIT_SHA/);
-  assert.match(skill, /Do not use `@main`/);
-  assert.match(skill, /v0\.1\.0-candidate\.8` is the first\ntag that contains the Action/);
-  assert.match(skill, /v0\.1\.0-candidate\.9` is the first tag whose\nmetadata passes Marketplace publication/);
+  assert.match(skill, /do not use `@main`/i);
   assert.match(contributing, /skill\.test\.mjs/);
   assert.match(contributing, /action\.test\.mjs/);
   assert.match(contributing, /Packed npm contents must include `skills\/`/);
