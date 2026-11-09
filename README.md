@@ -43,6 +43,9 @@ runtime behavior.
 
 ## Try it
 
+For a CLI-only run without Git, use the [versioned release package and checksum](https://github.com/epistemedeus/agent-payment-integrity/releases/tag/v0.1.0-candidate.15#install-the-cli-without-cloning).
+Use the source checkout below when developing the checker or running its tests.
+
 ```bash
 git clone https://github.com/epistemedeus/agent-payment-integrity.git
 cd agent-payment-integrity
