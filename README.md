@@ -43,7 +43,7 @@ runtime behavior.
 
 ## Try it
 
-For a CLI-only run without Git, use the [versioned release package and checksum](https://github.com/epistemedeus/agent-payment-integrity/releases/tag/v0.1.0-candidate.16).
+For a CLI-only run without Git, use the [versioned release package and checksum](https://github.com/epistemedeus/agent-payment-integrity/releases/tag/v0.1.0-candidate.17).
 Use the source checkout below when developing the checker or running its tests.
 
 ```bash
@@ -160,7 +160,7 @@ resolver and fails closed on any non-public answer.
 
 For a GitHub seller repository, copy the [complete workflow](examples/seller-github-action.yml)
 and set `origin` and `route` to your own HTTPS service. This example pins the
-tested Action from [candidate.16](https://github.com/epistemedeus/agent-payment-integrity/releases/tag/v0.1.0-candidate.16):
+tested Action from [candidate.17](https://github.com/epistemedeus/agent-payment-integrity/releases/tag/v0.1.0-candidate.17):
 
 ```yaml
 permissions:
@@ -171,7 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: epistemedeus/agent-payment-integrity@72c84542d5866ef26d7db262f5e3157e70f16d2d # v0.1.0-candidate.16
+      - uses: epistemedeus/agent-payment-integrity@368bbda47e565817f95caeb7a4325543ce9fed7a # v0.1.0-candidate.17
         with:
           origin: https://seller.example
           route: /read
