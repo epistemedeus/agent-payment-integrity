@@ -46,6 +46,11 @@ runtime behavior.
 For a CLI-only run without Git, use the [versioned release package and checksum](https://github.com/epistemedeus/agent-payment-integrity/releases/tag/v0.1.0-candidate.17).
 Use the source checkout below when developing the checker or running its tests.
 
+To see what a release check can decide, read the
+[worked no-login example](https://github.com/epistemedeus/agent-payment-integrity/blob/main/examples/release-check.md).
+Two revisions return the same simulated 402; only one guarantees the output
+the buyer needs. The example includes the decision, one correction and a rerun.
+
 ```bash
 git clone https://github.com/epistemedeus/agent-payment-integrity.git
 cd agent-payment-integrity
