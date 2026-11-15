@@ -676,14 +676,34 @@ function paidOperations(document, method) {
   return operations;
 }
 
-function responseDeclaration(operation) {
+function resolveLocalResponseComponent(document, group, entry) {
+  const seen = new Set();
+  while (isPlainObject(entry) && Object.hasOwn(entry, "$ref")) {
+    const ref = typeof entry.$ref === "string" && /^#\/components\/(responses|schemas)\/([A-Za-z0-9_.-]+)$/.exec(entry.$ref);
+    const components = document?.components?.[group];
+    // Response Object refs can override annotations. Never discard sibling
+    // schema constraints or interpret remote or cross-group references.
+    const annotations = group === "responses" ? ["$ref", "summary", "description"] : ["$ref"];
+    if (!ref || ref[1] !== group || Object.keys(entry).some((key) => !annotations.includes(key)) ||
+        seen.has(ref[2]) || seen.size === 16 || !isPlainObject(components) ||
+        !Object.hasOwn(components, ref[2]) || !isPlainObject(components[ref[2]])) {
+      return { value: null, unresolved: true };
+    }
+    seen.add(ref[2]);
+    entry = components[ref[2]];
+  }
+  return { value: isPlainObject(entry) ? entry : null, unresolved: false };
+}
+
+function responseDeclaration(operation, document) {
   const responses = isPlainObject(operation?.responses) ? operation.responses : {};
   const status = Object.keys(responses).filter((key) => /^2\d\d$/.test(key)).sort()[0];
-  const content = isPlainObject(responses?.[status]?.content) ? responses[status].content : {};
+  const declared = resolveLocalResponseComponent(document, "responses", responses[status]);
+  const content = isPlainObject(declared.value?.content) ? declared.value.content : {};
   const key = Object.keys(content).find((item) => item.toLowerCase().split(";", 1)[0].trim() === "application/json");
   const media = isPlainObject(content?.[key]) ? content[key] : null;
-  if (!status || !media) return { status: 200, mediaType: "application/json", schema: null };
-  const schema = isPlainObject(media.schema) ? media.schema : null;
+  if (!status || !media) return { status: 200, mediaType: "application/json", schema: null, unresolved: declared.unresolved };
+  const { value: schema, unresolved } = resolveLocalResponseComponent(document, "schemas", media.schema);
   let example = media.example;
   if (example === undefined) {
     const first = Object.values(isPlainObject(media.examples) ? media.examples : {})
@@ -695,22 +715,21 @@ function responseDeclaration(operation) {
     status: Number(status),
     mediaType: "application/json",
     schema,
+    unresolved,
     ...(example === undefined ? {} : { example }),
   };
 }
 
-function responseContractReport(origin, route, method, operation) {
+function responseContractReport(origin, route, method, { unresolved: _unresolved, ...response }) {
   return evaluateResponseContract({
     schemaVersion: POLICY_SCHEMAS.responseContractObservation,
     source: "seller_openapi",
     request: { method, url: new URL(route, origin).toString() },
-    response: responseDeclaration(operation),
+    response,
   });
 }
 
-function responseContractRepairPlan(operation, requestedPaths, guaranteedPaths) {
-  const declaration = responseDeclaration(operation);
-  const schema = declaration.schema;
+function responseContractRepairPlan(schema, requestedPaths, guaranteedPaths) {
   const guaranteed = new Set(guaranteedPaths);
   const actions = [];
 
@@ -921,6 +940,7 @@ export async function auditIntegrity({
 
   for (const route of routeNames) {
     const operation = xOperations.get(route) || mppOperations.get(route);
+    const document = xOperations.has(route) ? x402Document : mppDocument;
     const paymentDeclarations = [xOperations.get(route), mppOperations.get(route)]
       .map((entry) => entry?.["x-payment-info"]).filter((entry) => entry !== undefined);
     const explicitlyNonPaid = paymentDeclarations.length > 0 && paymentDeclarations.every((entry) =>
@@ -932,8 +952,10 @@ export async function auditIntegrity({
     // Preserve the legacy x402 expectation for unidentified declarations.
     const mppOnly = declaredProtocols.has("mpp") && !declaredProtocols.has("x402") && !requireBazaar;
     const findings = [];
-    const responseContract = responseContractReport(base, route, method, operation);
-    const repairPlan = responseContractRepairPlan(operation, normalizedRequiredPaths, responseContract.requiredPaths);
+    const declaration = responseDeclaration(operation, document);
+    const responseContract = responseContractReport(base, route, method, declaration);
+    const repairPlan = responseContractRepairPlan(declaration.schema, normalizedRequiredPaths, responseContract.requiredPaths);
+    if (declaration.unresolved) findings.push("seller_response_reference_unresolved");
     if (responseContract.decision !== "admissible") {
       findings.push(`seller_response_contract_${responseContract.decision}`);
     }
@@ -978,7 +1000,6 @@ export async function auditIntegrity({
     let target;
     let queryKeys = [];
     try {
-      const document = xOperations.has(route) ? x402Document : mppDocument;
       ({ url: target, queryKeys } = buildAuditTarget(base, route, operation, document));
     } catch (error) {
       addRoute({

@@ -1031,6 +1031,60 @@ test("fails seller CI when exact OpenAPI success output is absent or underconstr
   assert.ok(partial.routes[0].findings.includes("seller_response_contract_partial"));
 });
 
+test("local Response and root Schema Object references preserve exact inline evidence", async () => {
+  const fixture = documents();
+  const input = { origin: "https://example.com", ...fixture, requestImpl: requestFixture(), requiredPaths: ["data.value"] };
+  const baseline = (await auditIntegrity(input)).routes[0];
+  const operation = fixture.x402Document.paths["/read"].get;
+  const schema = operation.responses[200].content["application/json"].schema;
+  fixture.x402Document.components = {
+    responses: { Success: { $ref: "#/components/responses/JSON" }, JSON: { content: { "application/json": { schema: { $ref: "#/components/schemas/Payload" } } } } },
+    schemas: { Payload: { $ref: "#/components/schemas/Final" }, Final: schema },
+  };
+  operation.responses[200] = { $ref: "#/components/responses/Success", description: "Seller annotation" };
+  const resolved = (await auditIntegrity(input)).routes[0];
+  assert.equal(resolved.valid, true);
+  assert.equal(resolved.responseContract.schemaDigest, baseline.responseContract.schemaDigest);
+  assert.deepEqual(resolved.responseContract.requiredPaths, baseline.responseContract.requiredPaths);
+  assert.deepEqual(resolved.repairPlan, baseline.repairPlan);
+
+  // The live watch's generic envelope describes a deliverable but not a watch ID.
+  fixture.x402Document.components.schemas.Final = {
+    type: "object", required: ["deliverable"], properties: { deliverable: { description: "Item-specific payload" } },
+  };
+  const loose = (await auditIntegrity({ ...input, requiredPaths: ["deliverable.watch_id"] })).routes[0];
+  assert.notEqual(loose.responseContract.decision, "absent");
+  assert.equal(loose.valid, false);
+  assert.ok(loose.findings.includes("seller_response_required_path_missing:deliverable.watch_id"));
+  assert.equal(loose.repairPlan.actions[0].parentPath, "deliverable");
+});
+
+test("unresolved, external, cyclic and mixed schema references cannot grant output coverage", async () => {
+  const fixture = documents();
+  const operation = fixture.x402Document.paths["/read"].get;
+  fixture.x402Document.components = {
+    responses: { Loop: { $ref: "#/components/responses/Loop" } },
+    schemas: { Good: operation.responses[200].content["application/json"].schema },
+  };
+  for (const value of [
+    { $ref: "https://outside.example/other#/Success" },
+    { $ref: "#/components/responses/Missing" },
+    { $ref: "#/components/responses/Loop" },
+    { $ref: "#/components/responses/__proto__" },
+    { $ref: "#/components/schemas/Good" },
+    { content: { "application/json": { schema: { $ref: "#/components/schemas/Good", not: {} } } } },
+  ]) {
+    operation.responses[200] = value;
+    let requests = 0;
+    const entry = (await auditIntegrity({ origin: "https://example.com", ...fixture, requiredPaths: ["data.value"],
+      requestImpl: (target) => { requests++; assert.equal(target.origin, "https://example.com"); return requestFixture()(target); } })).routes[0];
+    assert.equal(requests, 1);
+    assert.equal(entry.valid, false);
+    assert.ok(entry.findings.includes("seller_response_reference_unresolved"));
+    assert.deepEqual(entry.responseContract.requiredPaths, []);
+  }
+});
+
 test("fails closed on full-query drift and cross-rail economics drift", async () => {
   const fullQueryMismatch = await auditIntegrity({
     origin: "https://example.com",
