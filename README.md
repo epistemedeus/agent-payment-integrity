@@ -3,6 +3,7 @@
 [![verify](https://github.com/epistemedeus/agent-payment-integrity/actions/workflows/ci.yml/badge.svg)](https://github.com/epistemedeus/agent-payment-integrity/actions/workflows/ci.yml)
 
 Credential-free CI checks for machine-payment sellers using x402 and MPP.
+Requires Node.js 22.12.0 or newer.
 
 The candidate CLI binds seller-owned declarations to the live unpaid HTTP 402
 response and checks:
