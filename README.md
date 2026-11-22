@@ -3,6 +3,7 @@
 [![verify](https://github.com/epistemedeus/agent-payment-integrity/actions/workflows/ci.yml/badge.svg)](https://github.com/epistemedeus/agent-payment-integrity/actions/workflows/ci.yml)
 
 Credential-free CI checks for machine-payment sellers using x402 and MPP.
+Requires Node.js 22.12.0 or newer.
 
 The candidate CLI binds seller-owned declarations to the live unpaid HTTP 402
 response and checks:
@@ -25,6 +26,15 @@ response and checks:
    `describedby` plus the exact `agent-payment-policy` extension relation, binds
    the exact method and path, and still matches the seller's current OpenAPI
    schema digest and complete recursively required-path set.
+
+Identifier validation follows the declared network family. EVM token and recipient
+addresses keep their existing nonzero 20-byte hexadecimal profile. Solana token
+and recipient addresses use Anza's maintained `@solana/addresses` validator for
+32-byte base58 addresses, preserving case and permitting program-derived addresses.
+The official x402 schema still validates the CAIP-2 network and challenge. This
+checks address syntax, not ownership, balances, solvency or successful delivery.
+See [Solana's account address format](https://solana.com/docs/core/accounts/account-structure)
+and the [maintained address package](https://github.com/anza-xyz/kit/tree/main/packages/addresses).
 
 It emits text, JSON, or SARIF and exits nonzero on a contract failure. It has no
 wallet, signer, facilitator credential, payment executor, or paid probe.

@@ -1225,3 +1225,40 @@ test("quote transport fails closed for contract-only POST and unobserved GET", a
   assert.deepEqual(get.routes[0].quoteTransport, { status: "unverified", reason: "request_failed" });
   assert.equal(get.quoteTransport.ok, false);
 });
+
+
+test("Solana economics use the maintained 32-byte base58 profile and preserve case", () => {
+  const challenge = structuredClone(FROZEN_MULTICHAIN_X402_V2_CHALLENGE);
+  const offer = challenge.accepts[10];
+  challenge.accepts = [offer];
+  const parse = () => parseX402Challenge(Buffer.from(JSON.stringify(challenge)).toString("base64url"));
+  assert.equal(parse().error, undefined);
+  assert.equal(parse().accepts[0].recipient, offer.payTo);
+  // Address syntax includes off-curve addresses; this is not wallet ownership or balance verification.
+  offer.payTo = "11111111111111111111111111111111";
+  assert.equal(parse().error, undefined);
+  for (const field of ["asset", "payTo"]) {
+    const original = offer[field];
+    for (const value of ["notAnAddress", "A".repeat(32), "z".repeat(44), "0".repeat(32),
+      RECIPIENT, " J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg\n"]) {
+      offer[field] = value;
+      const result = parse();
+      assert.ok(result.error, `${field} invalid network-bound value ${value.length}`);
+      assert.equal(result.accepts, undefined);
+    }
+    offer[field] = original;
+  }
+});
+
+test("EVM economics reject Solana identifiers and keep existing EVM normalization", () => {
+  const challenge = structuredClone(FROZEN_MULTICHAIN_X402_V2_CHALLENGE);
+  const evm = challenge.accepts[0], solana = challenge.accepts[10];
+  const parse = offer => parseX402Challenge(Buffer.from(JSON.stringify({...challenge, accepts:[offer]})).toString("base64url"));
+  assert.equal(parse(evm).accepts[0].recipient, evm.payTo.toLowerCase());
+  for (const field of ["asset", "payTo"]) {
+    const result = parse({...evm,[field]:solana[field]});
+    assert.ok(result.error); assert.equal(result.accepts, undefined);
+  }
+  assert.ok(parse({...solana, network:"eip155:8453"}).error);
+  assert.ok(parse({...evm, network:solana.network}).error);
+});
