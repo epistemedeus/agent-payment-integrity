@@ -41,6 +41,7 @@
     "prepack": "npm test"
   },
   "dependencies": {
+    "@solana/addresses": "8.6.0",
     "@x402/core": "2.29.0",
     "@x402/extensions": "2.29.0",
     "agent-payment-policy": "0.12.0",

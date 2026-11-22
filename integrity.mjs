@@ -5,6 +5,7 @@ import net from "node:net";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import ipaddr from "ipaddr.js";
+import { isAddress as isSolanaAddress } from "@solana/addresses";
 import {
   validateDiscoveryExtension,
   validateDiscoveryExtensionSpec,
@@ -430,7 +431,9 @@ function normalizeEconomics(
 ) {
   const atomic = String(amount ?? "");
   const normalizedNetwork = normalizeNetwork(network, { requireReference: requireNetworkReference });
-  const normalizeIdentifier = normalizedNetwork?.namespace === "eip155" ? lowerAddress : protocolIdentifier;
+  const normalizeIdentifier = normalizedNetwork?.namespace === "eip155" ? lowerAddress
+    : normalizedNetwork?.namespace === "solana" ? (value) => typeof value === "string" && isSolanaAddress(value) ? value : null
+      : protocolIdentifier;
   return {
     amountAtomic: DECIMAL_INTEGER.test(atomic) ? atomic : null,
     asset: normalizeIdentifier(currency ?? asset),
